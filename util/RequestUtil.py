@@ -347,7 +347,95 @@ def calculate_all_request_times(experiment, qmp_per_worker):
     experiment.logger.info(
         f"Generated {len(request_times)} requests for QPM {qmp_per_worker} in {effective_round_time:.1f}s effective window (buffer: {buffer_time:.1f}s)")
 
+    # 保存请求时间列表到文件
+    save_request_times_to_file(experiment, request_times, qmp_per_worker, global_start_time)
+
     return request_times
+
+
+def save_request_times_to_file(experiment, request_times, qmp_per_worker, global_start_time):
+    """将请求时间列表保存到文件中，按客户端分组"""
+    import os
+    import json
+    from datetime import datetime
+    
+    # 确保目录存在
+    os.makedirs('tmp_result', exist_ok=True)
+    
+    # 获取文件名
+    timestamp = GLOBAL_CONFIG.get("monitor_file_time", datetime.now().strftime("%m_%d_%H_%M"))
+    filename = f'tmp_result/request_times_{timestamp}.json'
+    
+    # 获取客户端信息
+    client_id = getattr(experiment.client, 'client_id', 'unknown_client')
+    client_type = getattr(experiment.client, 'client_type', 'unknown')
+    worker_id = getattr(experiment, 'worker_id', 'unknown_worker')
+    
+    # 转换时间戳为相对时间（便于分析）
+    relative_times = [t - global_start_time for t in request_times]
+    
+    # 准备要保存的数据
+    client_data = {
+        'client_id': client_id,
+        'client_type': client_type,
+        'worker_id': worker_id,
+        'qmp_per_worker': qmp_per_worker,
+        'round_time': experiment.round_time,
+        'distribution': experiment.distribution,
+        'time_ratio': experiment.time_ratio,
+        'global_start_time': global_start_time,
+        'global_start_time_iso': datetime.fromtimestamp(global_start_time).isoformat(),
+        'total_requests': len(request_times),
+        'request_times': {
+            'absolute_timestamps': request_times,  # 绝对时间戳
+            'relative_seconds': relative_times,    # 相对于开始时间的秒数
+            'first_request_at': relative_times[0] if relative_times else 0,
+            'last_request_at': relative_times[-1] if relative_times else 0,
+            'time_span': relative_times[-1] - relative_times[0] if len(relative_times) > 1 else 0
+        },
+        'statistics': {
+            'avg_interval': sum(relative_times[i+1] - relative_times[i] for i in range(len(relative_times)-1)) / max(len(relative_times)-1, 1) if len(relative_times) > 1 else 0,
+            'min_interval': min(relative_times[i+1] - relative_times[i] for i in range(len(relative_times)-1)) if len(relative_times) > 1 else 0,
+            'max_interval': max(relative_times[i+1] - relative_times[i] for i in range(len(relative_times)-1)) if len(relative_times) > 1 else 0
+        },
+        'generated_at': datetime.now().isoformat()
+    }
+    
+    # 读取现有文件或创建新文件
+    all_data = {}
+    if os.path.exists(filename):
+        try:
+            with open(filename, 'r', encoding='utf-8') as f:
+                all_data = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            all_data = {}
+    
+    # 如果文件是新的，初始化结构
+    if 'metadata' not in all_data:
+        all_data['metadata'] = {
+            'created_at': datetime.now().isoformat(),
+            'experiment_type': getattr(experiment, 'exp_type', 'unknown'),
+            'total_clients': 0
+        }
+        all_data['clients'] = {}
+    
+    # 添加客户端数据
+    all_data['clients'][client_id] = client_data
+    all_data['metadata']['total_clients'] = len(all_data['clients'])
+    all_data['metadata']['last_updated'] = datetime.now().isoformat()
+    
+    # 保存到文件
+    try:
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(all_data, f, indent=2, ensure_ascii=False)
+        
+        experiment.logger.info(f"Request times saved to {filename} for client {client_id}")
+        experiment.logger.info(f"  - Total requests: {len(request_times)}")
+        experiment.logger.info(f"  - Time span: {relative_times[-1] - relative_times[0]:.2f}s" if len(relative_times) > 1 else "  - Single request")
+        experiment.logger.info(f"  - Average interval: {client_data['statistics']['avg_interval']:.3f}s")
+        
+    except Exception as e:
+        experiment.logger.error(f"Failed to save request times to {filename}: {e}")
 
 
 def shuffled_all_request_times(base_times, start_offset, effective_round_time, time_ratio, global_start_time,

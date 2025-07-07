@@ -8,6 +8,7 @@ from enum import Enum
 from util.RequestUtil import make_request
 import os
 from config.Config import GLOBAL_CONFIG
+import json
 
 
 class QueueStrategy(Enum):
@@ -153,6 +154,18 @@ class RequestQueueManager:
         """队列状态监控协程"""
         self.logger.info(f"[queue manager 队列监控] 监控已启动，间隔: {self.queue_monitor_interval}s")
         
+        # 准备监控日志文件
+        os.makedirs('tmp_result', exist_ok=True)
+        timestamp = GLOBAL_CONFIG.get("monitor_file_time", datetime.now().strftime("%m_%d_%H_%M"))
+        monitor_file = f'tmp_result/queue_monitor_{timestamp}.json'
+        
+        monitor_data = {
+            'start_time': datetime.now().isoformat(),
+            'monitor_interval': self.queue_monitor_interval,
+            'strategy': self.strategy.value,
+            'snapshots': []
+        }
+        
         while self.workers_running:
             try:
                 # 获取队列状态
@@ -168,33 +181,109 @@ class RequestQueueManager:
                     priority = request.priority
                     priority_counts[priority] = priority_counts.get(priority, 0) + 1
                 
-                # 获取前几个请求的详细信息
-                top_requests_info = []
-                for i, request in enumerate(priority_queue_snapshot[:3]):
+                # 按客户端分组统计队列中的请求
+                client_queue_stats = {}
+                for request in priority_queue_snapshot:
+                    client_id = request.client_id
+                    if client_id not in client_queue_stats:
+                        client_queue_stats[client_id] = {
+                            'total_in_queue': 0,
+                            'priority_distribution': {},
+                            'requests': []
+                        }
+                    
+                    client_queue_stats[client_id]['total_in_queue'] += 1
+                    priority = request.priority
+                    if priority not in client_queue_stats[client_id]['priority_distribution']:
+                        client_queue_stats[client_id]['priority_distribution'][priority] = 0
+                    client_queue_stats[client_id]['priority_distribution'][priority] += 1
+                    
+                    # 记录请求详情
                     wait_time = time.time() - request.submit_time
-                    top_requests_info.append({
-                        'position': i + 1,
-                        'request_id': request.request_id[:12] + "...",  # 截断显示
-                        'client_id': request.client_id,
-                        'priority': request.priority,
-                        'wait_time': wait_time
+                    client_queue_stats[client_id]['requests'].append({
+                        'request_id': request.request_id,
+                        'priority': priority,
+                        'wait_time': round(wait_time, 2),
+                        'submit_time': request.submit_time,
+                        'client_type': getattr(request, 'client_type', 'unknown')
                     })
+                
+                # 统计客户端处理情况
+                client_processing_stats = {}
+                for client_id, stats in self.client_stats.items():
+                    pending_requests = stats['total_requests'] - stats['completed_requests'] - stats['failed_requests']
+                    avg_wait_time = stats['total_wait_time'] / max(stats['completed_requests'], 1)
+                    success_rate = stats['completed_requests'] / max(stats['total_requests'], 1) * 100 if stats['total_requests'] > 0 else 0
+                    
+                    # 获取token统计
+                    token_stats = self.client_token_stats.get(client_id, {})
+                    
+                    client_processing_stats[client_id] = {
+                        'client_type': stats['client_type'],
+                        'total_requests': stats['total_requests'],
+                        'completed_requests': stats['completed_requests'],
+                        'failed_requests': stats['failed_requests'],
+                        'pending_requests': pending_requests,
+                        'success_rate': round(success_rate, 2),
+                        'avg_wait_time': round(avg_wait_time, 3),
+                        'total_input_tokens': token_stats.get('total_input_tokens', 0),
+                        'total_output_tokens': token_stats.get('total_output_tokens', 0),
+                        'actual_tokens_used': token_stats.get('actual_tokens_used', 0)
+                    }
                 
                 # 计算总的待处理请求数
                 total_pending = normal_queue_size + priority_queue_size
                 
-                # 打印队列状态摘要
+                # 创建监控快照
+                snapshot = {
+                    'timestamp': datetime.now().isoformat(),
+                    'queue_summary': {
+                        'total_pending': total_pending,
+                        'normal_queue_size': normal_queue_size,
+                        'priority_queue_size': priority_queue_size,
+                        'priority_distribution': dict(sorted(priority_counts.items())) if priority_counts else {}
+                    },
+                    'client_queue_stats': client_queue_stats,
+                    'client_processing_stats': client_processing_stats
+                }
+                
+                monitor_data['snapshots'].append(snapshot)
+                
+                # 保存到文件
+                with open(monitor_file, 'w', encoding='utf-8') as f:
+                    json.dump(monitor_data, f, indent=2, ensure_ascii=False)
+                
+                # 打印简要日志到控制台
                 priority_info = ""
                 if priority_counts:
                     priority_info = f", 优先级分布: {dict(sorted(priority_counts.items()))}"
                 
                 self.logger.info(f"[queue manager 队列监控] 总待处理: {total_pending} (普通队列: {normal_queue_size}, 优先级队列: {priority_queue_size}{priority_info})")
                 
+                # 打印客户端摘要
+                if client_queue_stats:
+                    for client_id, queue_stats in client_queue_stats.items():
+                        processing_stats = client_processing_stats.get(client_id, {})
+                        self.logger.info(f"  客户端 {client_id}: 队列中 {queue_stats['total_in_queue']} 个请求, "
+                                       f"已处理 {processing_stats.get('completed_requests', 0)}/{processing_stats.get('total_requests', 0)}, "
+                                       f"成功率 {processing_stats.get('success_rate', 0):.1f}%")
+                
             except Exception as e:
                 self.logger.error(f"[queue manager 队列监控] 监控过程中出现错误: {e}")
             
             # 等待下一次监控
             await asyncio.sleep(self.queue_monitor_interval)
+        
+        # 保存最终统计
+        monitor_data['end_time'] = datetime.now().isoformat()
+        monitor_data['total_snapshots'] = len(monitor_data['snapshots'])
+        
+        try:
+            with open(monitor_file, 'w', encoding='utf-8') as f:
+                json.dump(monitor_data, f, indent=2, ensure_ascii=False)
+            self.logger.info(f"[queue manager 队列监控] 监控数据已保存到: {monitor_file}")
+        except Exception as e:
+            self.logger.error(f"[queue manager 队列监控] 保存监控数据失败: {e}")
         
         self.logger.info("[queue manager 队列监控] 监控已停止")
     
