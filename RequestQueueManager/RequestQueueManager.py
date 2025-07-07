@@ -576,7 +576,7 @@ class RequestQueueManager:
                     self.logger.error(f"Invalid request type: {type(request)}")
                     continue
                 
-                self.logger.info(f"Worker {worker_name}: Submitting request {request.request_id} from client {request.client_id}")
+                self.logger.debug(f"Worker {worker_name}: Submitting request {request.request_id} from client {request.client_id}")
                 
                 # 异步提交请求（不等待完成）
                 asyncio.create_task(
