@@ -194,12 +194,20 @@ def adjust_engine_config_for_resources(args, logger):
         logger.warning("未检测到GPU，将使用CPU模式（性能会显著降低）")
         args.tensor_parallel_size = 1
         args.gpu_memory_utilization = 0.5
+        args.max_num_seqs = 4  # CPU模式下保守一些
     elif gpu_count < args.tensor_parallel_size:
         logger.warning(f"可用GPU数量({gpu_count})少于tensor_parallel_size({args.tensor_parallel_size})，自动调整")
         args.tensor_parallel_size = gpu_count
     
+    # 调整max_num_seqs以允许更多并发序列
+    # 不要限制为1，这会严重限制并发性能
+    if not hasattr(args, 'max_num_seqs') or args.max_num_seqs is None:
+        args.max_num_seqs = 64  # 设置合理的默认值
+    else:
+        # 确保max_num_seqs至少为16，以支持基本的并发处理
+        args.max_num_seqs = max(args.max_num_seqs, 16)
+    
     # 保守的资源配置
-    args.max_num_seqs = min(getattr(args, 'max_num_seqs', 128), 1)
     args.gpu_memory_utilization = min(args.gpu_memory_utilization, 0.8)
     
     logger.info(f"调整后的引擎配置: tensor_parallel_size={args.tensor_parallel_size}, "
@@ -247,6 +255,7 @@ async def start_vllm_engine(args, logger):
             pipeline_parallel_size=getattr(args, 'pipeline_parallel_size', 1),
             gpu_memory_utilization=getattr(args, 'gpu_memory_utilization', 0.9),
             max_model_len=getattr(args, 'max_model_len', 4096),
+            max_num_seqs=getattr(args, 'max_num_seqs', 64),
             disable_log_stats=getattr(args, 'disable_log_stats', True),
             enable_prefix_caching=False,  # 强制禁用前缀缓存
             dtype=getattr(args, 'dtype', 'half'),
@@ -260,6 +269,7 @@ async def start_vllm_engine(args, logger):
         logger.info(f"  pipeline_parallel_size: {engine_args.pipeline_parallel_size}")
         logger.info(f"  gpu_memory_utilization: {engine_args.gpu_memory_utilization}")
         logger.info(f"  max_model_len: {engine_args.max_model_len}")
+        logger.info(f"  max_num_seqs: {engine_args.max_num_seqs}")
         logger.info(f"  quantization: {engine_args.quantization}")
         logger.info(f"  dtype: {engine_args.dtype}")
         logger.info(f"  disable_log_stats: {engine_args.disable_log_stats}")

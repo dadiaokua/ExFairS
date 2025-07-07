@@ -27,7 +27,7 @@ class QueueExperiment(BaseExperiment):
         # 队列管理器
         self.queue_manager = queue_manager
         self.queue_strategy = queue_strategy
-        self.queue_workers = 3  # 队列处理worker数量
+        self.queue_workers = 20  # 队列处理worker数量 - 增加到20个以支持更高并发
 
         # 如果没有提供队列管理器，创建一个新的
         if self.queue_manager is None:
@@ -38,17 +38,32 @@ class QueueExperiment(BaseExperiment):
         """设置实验，进行必要的准备工作"""
         await super().setup()
 
+        self.logger.info(f"Setting up queue experiment with strategy: {self.queue_strategy.value}")
+        
         # 确保队列管理器有OpenAI客户端
         if not self.queue_manager.openai_client:
+            self.logger.info("Setting OpenAI client on queue manager")
             self.queue_manager.set_openai_client(self.openAI_client)
+        else:
+            self.logger.info("Queue manager already has OpenAI client")
 
         # 启动队列管理器（如果还没有启动）
         if not self.queue_manager.is_running:
+            self.logger.info("Queue manager is not running, starting it...")
             # 在后台启动队列处理
-            asyncio.create_task(self.queue_manager.start_processing(self.queue_workers))
+            self.queue_processing_task = asyncio.create_task(self.queue_manager.start_processing(self.queue_workers))
 
-            # 等待一下确保队列管理器启动
-            await asyncio.sleep(0.5)
+            # 等待队列管理器启动并确认workers正在运行
+            await asyncio.sleep(3.0)  # 增加等待时间
+            
+            # 检查队列管理器状态
+            if self.queue_manager.is_running and self.queue_manager.workers_running:
+                self.logger.info("✓ Queue manager started successfully")
+            else:
+                self.logger.error(f"❌ Queue manager failed to start properly. is_running: {self.queue_manager.is_running}, workers_running: {self.queue_manager.workers_running}")
+                raise RuntimeError("Failed to start queue manager")
+        else:
+            self.logger.info("Queue manager is already running")
 
         self.logger.info(f"Queue experiment setup complete with {self.queue_workers} queue workers")
         return self
@@ -136,14 +151,41 @@ class QueueExperiment(BaseExperiment):
 
     async def cleanup(self):
         """清理资源"""
+        self.logger.info("Starting queue experiment cleanup")
+        
         if self.queue_manager and self.queue_manager.is_running:
             await self.queue_manager.cleanup()
             self.logger.info("Queue manager cleaned up")
+            
+        # 取消队列处理任务（如果存在）
+        if hasattr(self, 'queue_processing_task') and not self.queue_processing_task.done():
+            self.logger.info("Cancelling queue processing task")
+            self.queue_processing_task.cancel()
+            try:
+                await self.queue_processing_task
+            except asyncio.CancelledError:
+                self.logger.info("Queue processing task cancelled successfully")
+            except Exception as e:
+                self.logger.warning(f"Error while cancelling queue processing task: {e}")
 
     async def end(self):
+        """结束实验"""
+        self.logger.info("Ending queue experiment")
+        
         if self.queue_manager and self.queue_manager.is_running:
             await self.queue_manager.stop()
             self.logger.info("Queue manager stopped")
+            
+        # 取消队列处理任务（如果存在）
+        if hasattr(self, 'queue_processing_task') and not self.queue_processing_task.done():
+            self.logger.info("Cancelling queue processing task in end()")
+            self.queue_processing_task.cancel()
+            try:
+                await self.queue_processing_task
+            except asyncio.CancelledError:
+                self.logger.info("Queue processing task cancelled successfully in end()")
+            except Exception as e:
+                self.logger.warning(f"Error while cancelling queue processing task in end(): {e}")
 
     def get_queue_statistics(self):
         """获取队列统计信息"""

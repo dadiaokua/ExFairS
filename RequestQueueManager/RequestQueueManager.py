@@ -466,16 +466,21 @@ class RequestQueueManager:
     
     async def _process_request(self, request: QueuedRequest, worker_name) -> Any:
         """处理单个请求"""
+        self.logger.debug(f"Worker {worker_name}: Starting to process request {request.request_id}")
+        
         if not self.openai_client:
             self.logger.error("OpenAI client not set")
             return None
         else:
             selected_client = self.openai_client[int(worker_name.split('-')[1]) % len(self.openai_client)]
+            self.logger.debug(f"Worker {worker_name}: Selected client {type(selected_client)} for request {request.request_id}")
         
         wait_time = time.time() - request.submit_time
         self.client_stats[request.client_id]['total_wait_time'] += wait_time
+        self.logger.debug(f"Worker {worker_name}: Request {request.request_id} waited {wait_time:.3f} seconds")
         
         try:
+            self.logger.debug(f"Worker {worker_name}: Calling make_request for {request.request_id}")
             # 调用原有的make_request函数，传递request_id
             result = await make_request(
                 client=selected_client,
@@ -488,12 +493,12 @@ class RequestQueueManager:
             
             if result is None:
                 self.client_stats[request.client_id]['failed_requests'] += 1
-                self.logger.debug(f"Request failed: {request.request_id}")
+                self.logger.warning(f"Request failed: {request.request_id}")
                 return None
                 
             self.client_stats[request.client_id]['completed_requests'] += 1
             self.total_requests_processed += 1
-            self.logger.debug(f"Request completed: {request.request_id}")
+            self.logger.info(f"Request completed successfully: {request.request_id}")
             
             try:
                 # 从result中提取token信息并更新统计
@@ -525,6 +530,12 @@ class RequestQueueManager:
         self.start_time = time.time()
         
         self.logger.info(f"Starting request queue manager with {num_workers} workers")
+        self.logger.info(f"Strategy: {self.strategy}, OpenAI client set: {self.openai_client is not None}")
+        
+        if self.openai_client is None:
+            self.logger.error("CRITICAL: OpenAI client is not set! Workers will not be able to process requests.")
+        else:
+            self.logger.info(f"OpenAI client configured with {len(self.openai_client)} clients")
         
         # 创建工作协程
         workers = [
@@ -532,8 +543,11 @@ class RequestQueueManager:
             for i in range(num_workers)
         ]
         
+        self.logger.info(f"Created {len(workers)} worker tasks")
+        
         # 启动队列监控协程
         self.queue_monitor_task = asyncio.create_task(self._monitor_queue_status())
+        self.logger.info("Started queue monitoring task")
         
         try:
             # 等待所有工作协程和监控协程
@@ -543,15 +557,18 @@ class RequestQueueManager:
         finally:
             self.is_running = False
             self.workers_running = False
+            self.logger.info("Queue manager processing stopped")
     
     async def _worker(self, worker_name: str):
-        """工作协程"""
-        self.logger.info(f"Worker {worker_name} started")
+        """工作协程 - 异步模式：快速提交请求，不等待完成"""
+        self.logger.info(f"Worker {worker_name} started (async mode)")
         
         while self.workers_running:
             try:
+                self.logger.debug(f"Worker {worker_name}: Attempting to get next request...")
                 request = await self._get_next_request()
                 if request is None:
+                    self.logger.debug(f"Worker {worker_name}: No request available, sleeping...")
                     await asyncio.sleep(0.1)  # 没有请求时短暂休眠
                     continue
                 
@@ -559,23 +576,44 @@ class RequestQueueManager:
                     self.logger.error(f"Invalid request type: {type(request)}")
                     continue
                 
-                # 处理请求
-                try:
-                    result = await self._process_request(request, worker_name)
-                    
-                    # 将结果发送到客户端的响应队列
-                    if request.client_id in self.response_queues:
-                        await self.response_queues[request.client_id].put(result)
-                except Exception as e:
-                    self.logger.error(f"Error in _process_request: {str(e)}")
-                    if request.client_id in self.response_queues:
-                        await self.response_queues[request.client_id].put(None)
+                self.logger.info(f"Worker {worker_name}: Submitting request {request.request_id} from client {request.client_id}")
+                
+                # 异步提交请求（不等待完成）
+                asyncio.create_task(
+                    self._process_request_async(request, worker_name)
+                )
+                
+                # 立即继续处理下一个请求，不等待当前请求完成
                 
             except Exception as e:
                 self.logger.error(f"Worker {worker_name} error: {str(e)}")
                 await asyncio.sleep(1.0)
         
         self.logger.info(f"Worker {worker_name} stopped")
+
+    async def _process_request_async(self, request: QueuedRequest, worker_name: str):
+        """异步处理单个请求"""
+        try:
+            self.logger.debug(f"Worker {worker_name}: Starting async processing for {request.request_id}")
+            
+            # 处理请求
+            result = await self._process_request(request, worker_name)
+            
+            # 将结果发送到客户端的响应队列
+            if request.client_id in self.response_queues:
+                await self.response_queues[request.client_id].put(result)
+                self.logger.debug(f"Worker {worker_name}: Result sent to response queue for {request.client_id}")
+            else:
+                self.logger.warning(f"Worker {worker_name}: No response queue found for client {request.client_id}")
+                
+        except Exception as e:
+            self.logger.error(f"Error in async processing for {request.request_id}: {str(e)}")
+            # 发送None作为错误结果
+            if request.client_id in self.response_queues:
+                try:
+                    await self.response_queues[request.client_id].put(None)
+                except Exception:
+                    pass
     
     async def stop(self):
         """停止队列管理器"""

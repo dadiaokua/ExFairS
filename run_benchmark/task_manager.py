@@ -68,7 +68,7 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
         queue_manager.set_openai_client(openAI_client)
 
         # 启动队列管理器（在后台运行，不需要保存task引用）
-        asyncio.create_task(queue_manager.start_processing(num_workers=10))
+        asyncio.create_task(queue_manager.start_processing(num_workers=20))
         logger.info(f"Created queue manager with strategy: {strategy.value}")
 
     # Create short request clients
