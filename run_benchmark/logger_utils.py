@@ -26,7 +26,7 @@ def setup_logging():
     logger.setLevel(logging.INFO)
     if not logger.handlers:
         fh = logging.FileHandler(log_file, encoding="utf-8", mode="a")  # 改回追加模式
-        fh.setLevel(logging.INFO)
+        fh.setLevel(logging.DEBUG)
         formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
         fh.setFormatter(formatter)
         logger.addHandler(fh)

@@ -109,9 +109,12 @@ class BenchmarkClient:
             logger.addHandler(fh)
             # 控制台输出
             ch = logging.StreamHandler()
-            ch.setLevel(logging.INFO)  # 将控制台处理器的级别设置为DEBUG
+            ch.setLevel(logging.INFO)  # 将控制台处理器的级别设置为INFO
             ch.setFormatter(formatter)
             logger.addHandler(ch)
+            
+        # 防止日志传播到父logger，避免其他logger配置的干扰
+        logger.propagate = False
 
         return logger
 
