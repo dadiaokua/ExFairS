@@ -498,7 +498,7 @@ class RequestQueueManager:
                 
             self.client_stats[request.client_id]['completed_requests'] += 1
             self.total_requests_processed += 1
-            self.logger.info(f"Request completed successfully: {request.request_id}")
+            self.logger.debug(f"Request completed successfully: {request.request_id}")
             
             try:
                 # 从result中提取token信息并更新统计
