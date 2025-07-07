@@ -226,7 +226,260 @@ async def make_request_http_client(client, experiment, request, start_time=None,
 
 async def make_request_via_queue(queue_manager, client_id: str, worker_id: str,
                                  request_content: str, experiment, priority: int = 0, request_id: str = None) -> Any:
-    """通过队列管理器发送请求"""
+    """通过队列管理器发送请求 - 真正异步版本：只提交请求，不等待响应"""
+    # 如果没有提供request_id，生成一个（向后兼容）
+    if request_id is None:
+        request_id = str(uuid.uuid4())
+
+    try:
+        # 只提交请求到队列，立即返回
+        submitted_request_id = await queue_manager.submit_request(
+            client_id=client_id,
+            worker_id=worker_id,
+            request_content=request_content,
+            experiment=experiment,
+            priority=priority,
+            start_time=time.time(),
+            request_id=request_id  # 传递预生成的request_id
+        )
+
+        # 不等待响应，直接返回一个Future或者特殊标记
+        # 这样请求就能立即提交，实现真正的并发
+        return submitted_request_id
+
+    except Exception as e:
+        experiment.logger.error(f"Error making request via queue: {e}")
+        return None
+
+
+async def collect_single_response(queue_manager, client_id, request_info, global_start_time, experiment):
+    """收集单个请求的响应"""
+    try:
+        # 计算动态超时时间
+        current_elapsed = time.time() - global_start_time
+        remaining_time = experiment.round_time - current_elapsed
+        timeout = min(1000, max(5, remaining_time * 0.8))  # 使用剩余时间的80%作为超时
+        
+        result = await queue_manager.get_response(client_id, timeout=timeout)
+        
+        if result:
+            request_info["status"] = "completed"
+            request_info["end_time"] = time.time()
+            return result, request_info
+        else:
+            request_info["status"] = "failed"
+            request_info["end_time"] = time.time()
+            return None, request_info
+            
+    except asyncio.TimeoutError:
+        request_info["status"] = "timeout"
+        request_info["end_time"] = time.time()
+        return None, request_info
+    except Exception as e:
+        experiment.logger.error(f"Error collecting response for {request_info['request_id']}: {e}")
+        request_info["status"] = "failed"
+        request_info["end_time"] = time.time()
+        return None, request_info
+
+
+async def worker_with_queue(experiment, queue_manager, semaphore, results, worker_id, worker_json, qmp_per_worker):
+    """使用队列管理器的worker函数 - 批量提交模式"""
+    assert worker_json is not None, "sample_content is None!"
+    assert isinstance(worker_json, list), f"sample_content is not a list! type={type(worker_json)}"
+    assert len(worker_json) > 0, "sample_content is empty!"
+
+    global_start_time = time.time()
+    request_count = 0
+    drift_time = 0
+    completed = 0
+    submitted_requests = []  # 存储已提交的请求信息
+
+    # 创建线程安全的token计数器
+    tokens_counter = ThreadSafeCounter()
+
+    # 注册客户端到队列管理器
+    client_id = f"{experiment.client_id}_worker_{worker_id}"
+
+    # 获取客户端ID用于日志
+    main_client_id = getattr(experiment.client, 'client_id', 'unknown_client')
+
+    # 预先计算所有请求的时间点
+    request_times = calculate_all_request_times(experiment, qmp_per_worker)
+
+    # 第一阶段：按时间点提交所有请求到队列
+    experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: Starting request submission phase")
+    
+    for target_time in request_times:
+        if time.time() - global_start_time >= experiment.round_time:
+            break
+        current_time = time.time()
+        if target_time <= current_time:
+            # 如果目标时间已过，直接发送请求
+            drift_time = current_time - target_time
+        else:
+            # 如果还没到目标时间，先sleep
+            sleep_time = target_time - current_time
+            if sleep_time > 0:
+                await asyncio.sleep(sleep_time)
+            else:
+                experiment.logger.warning(
+                    f"Client {main_client_id}: Warning: Negative sleep time detected: {sleep_time:.6f} seconds")
+                continue
+
+        # 提交请求到队列（不等待响应）
+        request = random.choice(worker_json)
+        priority = experiment.client.priority
+        request_id = f"{main_client_id}_{str(uuid.uuid4())}"
+
+        # 直接提交请求，不等待
+        try:
+            submitted_request_id = await queue_manager.submit_request(
+                client_id=client_id,
+                worker_id=f"worker_{worker_id}",
+                request_content=request,
+                experiment=experiment,
+                priority=priority,
+                start_time=time.time(),
+                request_id=request_id
+            )
+            
+            submitted_requests.append({
+                "request_id": submitted_request_id,
+                "submit_time": time.time(),
+                "status": "submitted"
+            })
+            request_count += 1
+            
+        except Exception as e:
+            experiment.logger.error(f"Error submitting request {request_id}: {e}")
+
+    submission_time = time.time() - global_start_time
+    experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: Submitted {request_count} requests in {submission_time:.2f}s")
+
+    # 第二阶段：并发收集所有响应（非阻塞模式）
+    experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: Starting response collection phase")
+    
+    collected_results = []
+    
+    # 创建收集任务，每个任务尝试收集一个响应
+    collection_tasks = []
+    for request_info in submitted_requests:
+        task = asyncio.create_task(
+            collect_single_response(queue_manager, client_id, request_info, global_start_time, experiment)
+        )
+        collection_tasks.append(task)
+    
+    # 并发等待所有收集任务，但有总体超时控制
+    start_collection_time = time.time()
+    completed_tasks = 0
+    
+    while collection_tasks and completed_tasks < len(submitted_requests):
+        current_elapsed = time.time() - global_start_time
+        if current_elapsed >= experiment.round_time:
+            experiment.logger.warning(f"Client {main_client_id} Worker {worker_id}: Round time exceeded during collection phase, stopping collection")
+            # 取消所有未完成的收集任务
+            for task in collection_tasks:
+                if not task.done():
+                    task.cancel()
+            break
+        
+        # 等待任何一个任务完成，最多等待1秒
+        collection_timeout = min(1.0, experiment.round_time - current_elapsed)
+        if collection_timeout <= 0:
+            break
+            
+        try:
+            done, pending = await asyncio.wait(
+                collection_tasks, 
+                timeout=collection_timeout,
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            
+            # 处理已完成的任务
+            for task in done:
+                try:
+                    result, req_info = await task
+                    if result:
+                        output_tokens = result[0]
+                        new_total = tokens_counter.add(output_tokens)
+                        collected_results.append(result)
+                        completed += 1
+                        
+                        # 如果超过限制，记录日志
+                        if hasattr(experiment, 'max_tokens') and new_total >= experiment.max_tokens:
+                            experiment.logger.info(
+                                f"Worker {worker_id} reached max tokens after processing: {new_total}/{experiment.max_tokens}")
+                    
+                    completed_tasks += 1
+                except Exception as e:
+                    experiment.logger.error(f"Error processing completed collection task: {e}")
+                    completed_tasks += 1
+            
+            # 更新任务列表，移除已完成的任务
+            collection_tasks = [task for task in collection_tasks if not task.done()]
+            
+        except asyncio.TimeoutError:
+            # 超时，继续循环检查round time
+            continue
+    
+    # 收集完成后，检查哪些请求没有被成功收集
+    for request_info in submitted_requests:
+        if request_info["status"] in ["timeout", "failed"] or "end_time" not in request_info:
+            # 如果没有end_time，说明请求未完成，设置状态和结束时间
+            if "end_time" not in request_info:
+                request_info["status"] = "uncompleted"
+                request_info["end_time"] = time.time()
+
+    collection_time = time.time() - start_collection_time
+    experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: Collection phase completed in {collection_time:.2f}s, collected {len(collected_results)} results")
+
+    # 将收集到的结果添加到results中
+    results.extend(collected_results)
+
+    # 将未完成的请求ID注册到客户端，供engine abort使用
+    if hasattr(experiment, 'client'):
+        if not hasattr(experiment.client, 'active_request_ids'):
+            experiment.client.active_request_ids = set()
+        
+        # 添加所有需要abort的请求ID
+        abort_request_ids = set()
+        for req_info in submitted_requests:
+            if req_info["status"] in ["submitted", "timeout", "failed", "uncompleted"]:
+                abort_request_ids.add(req_info["request_id"])
+        
+        experiment.client.active_request_ids.update(abort_request_ids)
+        experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: {len(abort_request_ids)} requests added to active list for abort")
+
+    # 等待剩余时间（如果还有的话）
+    elapsed = time.time() - global_start_time
+    remaining_time = experiment.round_time - elapsed
+    if remaining_time > 0 and remaining_time <= experiment.round_time * GLOBAL_CONFIG.get('buffer_ratio', 0.5):
+        await asyncio.sleep(remaining_time)
+    elif remaining_time <= 0:
+        experiment.logger.info(f"Client {main_client_id}: round time exceeded by {-remaining_time:.2f}s")
+    else:
+        experiment.logger.info(f"Client {main_client_id}: reached the end of the round time.")
+
+    # 计算总耗时
+    total_elapsed_time = time.time() - global_start_time
+    failed_count = len([r for r in submitted_requests if r["status"] == "failed"])
+    timeout_count = len([r for r in submitted_requests if r["status"] == "timeout"])
+    uncompleted_count = len([r for r in submitted_requests if r["status"] == "uncompleted"])
+
+    experiment.logger.info(
+        f"Client {main_client_id} Worker {worker_id}: Total requests: {request_count}, Completed: {completed}, Failed: {failed_count}, Timeout: {timeout_count}, Uncompleted: {uncompleted_count}")
+    experiment.logger.info(
+        f"Client {main_client_id} Worker {worker_id}: Success rate: {completed / len(submitted_requests) * 100:.2f}%")
+    experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: Total tokens processed: {tokens_counter.value}")
+    experiment.logger.info(
+        f"Client {main_client_id} Worker {worker_id}: Total elapsed time: {total_elapsed_time:.2f} seconds, Round time: {experiment.round_time:.2f} seconds")
+
+    return completed, drift_time, request_count
+
+
+async def make_request_via_queue_with_response(queue_manager, client_id: str, worker_id: str,
+                                               request_content: str, experiment, priority: int = 0, request_id: str = None) -> Any:
+    """通过队列管理器发送请求并等待响应 - 用于需要响应的场景"""
     # 如果没有提供request_id，生成一个（向后兼容）
     if request_id is None:
         request_id = str(uuid.uuid4())
@@ -290,17 +543,12 @@ def calculate_all_request_times(experiment, qmp_per_worker):
     # 这样即使有buffer time，我们仍然会发送完整的请求数量
     estimated_requests = int(round_time * rate_per_second)
 
-    # 移除随机变化
-    # random_variation = random.uniform(0.9, 1.1)
-    # estimated_requests = int(estimated_requests * random_variation)
-
     # 生成所有请求的时间点
     request_times = []
     global_start_time = time.time()  # 使用当前时间作为全局开始时间
 
-    # 移除随机开始偏移
-    # start_offset = random.uniform(0, min(5.0, effective_round_time * 0.1))
-    start_offset = 0  # 从0开始，没有随机偏移
+    # 从0开始，没有随机偏移
+    start_offset = 0
 
     # 先生成基础时间点（相对于开始时间的偏移）
     base_times = []
@@ -310,11 +558,9 @@ def calculate_all_request_times(experiment, qmp_per_worker):
     compression_ratio = effective_round_time / round_time if round_time > 0 else 1.0
 
     for i in range(estimated_requests):
-        # 根据分布类型计算间隔，但移除额外的随机性
+        # 根据分布类型计算间隔
         if distribution.lower() == "poisson":
             # 泊松分布
-            # base_rate_variation = random.uniform(0.7, 1.3)
-            # adjusted_interval = base_interval * base_rate_variation
             interval = float(np.random.exponential(base_interval))
         elif distribution.lower() == "normal":
             # 正态分布，使用固定标准差
@@ -322,12 +568,8 @@ def calculate_all_request_times(experiment, qmp_per_worker):
             interval = base_interval + float(np.random.normal(0, std_dev))
             interval = max(0.001, interval)  # 确保间隔为正
         else:
-            # 均匀分布，不添加额外变化
-            # variation_range = random.uniform(0.3, 0.7)
-            # interval = base_interval + float(np.random.uniform(-base_interval * variation_range,
-            #                                                   base_interval * variation_range))
+            # 均匀分布
             interval = base_interval  # 使用固定间隔
-            # interval = max(0.001, interval)
 
         # 应用压缩比例，将请求间隔压缩
         compressed_interval = interval * compression_ratio
@@ -336,8 +578,6 @@ def calculate_all_request_times(experiment, qmp_per_worker):
         if current_offset > effective_round_time:  # 确保不超出有效时间窗口
             break
         base_times.append(current_offset)
-
-        # shuffled_all_request_times(base_times, start_offset, effective_round_time, time_ratio, global_start_time, experiment, buffer_time)
 
     for base_time in base_times:
         request_time = global_start_time + base_time
@@ -457,68 +697,6 @@ def save_request_times_to_file(experiment, request_times, qmp_per_worker, global
         experiment.logger.error(f"Failed to save request times to {filename}: {e}")
 
 
-def shuffled_all_request_times(base_times, start_offset, effective_round_time, time_ratio, global_start_time,
-                               experiment, buffer_time):
-    # 对时间点进行轻微的随机打散，但保持总体顺序
-    shuffled_times = []
-    for i, base_offset in enumerate(base_times):
-        # 添加小幅随机偏移
-        jitter = random.uniform(-0.5, 0.5)  # ±0.5秒的抖动
-        jittered_offset = base_offset + jitter
-        jittered_offset = max(start_offset, min(effective_round_time, jittered_offset))  # 确保在有效范围内
-
-        # 应用非线性映射（在有效时间窗口内）
-        if time_ratio > 1 and jittered_offset <= effective_round_time:
-            # 使用sigmoid类函数进行平滑映射
-            progress = jittered_offset / effective_round_time
-            # 调整后的进度，保持开始和结束点不变，但中间部分根据time_ratio拉伸
-            adjusted_progress = progress ** (1 / time_ratio)
-            adjusted_offset = adjusted_progress * effective_round_time
-        else:
-            # time_ratio <= 1的情况，直接线性缩放
-            adjusted_offset = jittered_offset * time_ratio
-
-        # 确保调整后的时间不会超出有效时间窗口
-        if adjusted_offset > effective_round_time:
-            adjusted_offset = effective_round_time
-
-        # 将偏移转换为绝对时间
-        request_time = global_start_time + adjusted_offset
-        shuffled_times.append(request_time)
-
-    # 最后再次打散一部分时间点，增加随机性
-    if len(shuffled_times) > 1:
-        # 随机选择20%的时间点进行轻微重排
-        num_to_shuffle = max(1, len(shuffled_times) // 5)
-        indices_to_shuffle = random.sample(range(len(shuffled_times)), num_to_shuffle)
-
-        # 对选中的时间点进行局部随机化（确保仍在有效时间窗口内）
-        for idx in indices_to_shuffle:
-            # 在附近范围内随机调整时间
-            if idx > 0 and idx < len(shuffled_times) - 1:
-                min_time = (shuffled_times[idx - 1] + shuffled_times[idx]) / 2
-                max_time = (shuffled_times[idx] + shuffled_times[idx + 1]) / 2
-                # 确保不超出有效时间窗口
-                max_time = min(max_time, global_start_time + effective_round_time)
-                if min_time < max_time:
-                    shuffled_times[idx] = random.uniform(min_time, max_time)
-
-    # 确保时间点仍然是递增的
-    shuffled_times.sort()
-
-    # 最终检查：确保所有时间点都在有效窗口内
-    shuffled_times = [t for t in shuffled_times if t <= global_start_time + effective_round_time]
-
-    experiment.logger.info(
-        f"Generated {len(shuffled_times)} request times in {effective_round_time}s window, buffer: {buffer_time}s")
-    if shuffled_times:
-        last_request_time = shuffled_times[-1] - global_start_time
-        experiment.logger.info(
-            f"Last request at: {last_request_time:.2f}s, buffer remaining: {effective_round_time - last_request_time:.2f}s")
-
-    return shuffled_times
-
-
 async def worker(experiment, selected_clients, semaphore, results, worker_id, worker_json, qmp_per_worker):
     """每个task发送单个请求，使用预先计算的时间点控制间隔"""
     assert worker_json is not None, "sample_content is None!"
@@ -530,7 +708,6 @@ async def worker(experiment, selected_clients, semaphore, results, worker_id, wo
     drift_time = 0
     completed = 0
     tasks = []
-    task_status = {}
 
     # 创建线程安全的token计数器
     tokens_counter = ThreadSafeCounter()
@@ -552,7 +729,6 @@ async def worker(experiment, selected_clients, semaphore, results, worker_id, wo
             # 如果还没到目标时间，先sleep
             sleep_time = target_time - current_time
             if sleep_time > 0:
-                sleep_start = time.time()
                 await asyncio.sleep(sleep_time)
             else:
                 experiment.logger.warning(
@@ -571,43 +747,6 @@ async def worker(experiment, selected_clients, semaphore, results, worker_id, wo
                             request_id)
         )
 
-        # 在task_status中存储request_id和其他信息
-        task_status[task] = {
-            "request_id": request_id,
-            "start_time": time.time(),
-            "status": "running"
-        }
-
-        # 更新done回调以正确更新状态
-        def make_done_callback(task_ref):
-            def callback(t):
-                if task_ref in task_status:
-                    try:
-                        # 检查task是否成功完成并返回了有效结果
-                        if t.cancelled():
-                            status = "cancelled"
-                        elif t.exception():
-                            status = "failed"
-                        else:
-                            result = t.result()
-                            # 如果process_request返回了有效结果（不是None），标记为真正的completed
-                            # 否则标记为failed，这样abort时可以识别这些失败的请求
-                            status = "completed" if result is not None else "failed"
-
-                        task_status[task_ref].update({
-                            "status": status,
-                            "end_time": time.time()
-                        })
-                    except Exception as e:
-                        # 异常情况下标记为failed
-                        task_status[task_ref].update({
-                            "status": "failed",
-                            "end_time": time.time()
-                        })
-
-            return callback
-
-        task.add_done_callback(make_done_callback(task))
         tasks.append(task)
         request_count += 1
 
@@ -621,19 +760,12 @@ async def worker(experiment, selected_clients, semaphore, results, worker_id, wo
     else:
         experiment.logger.info(f"Client {client_id}: reached the end of the round time.")
 
-    # 将task_status存储到experiment中，供abort使用
-    if hasattr(experiment, 'client'):
-        experiment.client.task_status = task_status
-
     # 等待所有任务完成
     if tasks:
-        # 等待取消操作完成
-        # await asyncio.gather(*tasks, return_exceptions=True)
-
         # 计算总耗时
         total_elapsed_time = time.time() - global_start_time
 
-        completed = sum(1 for status in task_status.values() if status["status"] == "completed")
+        completed = sum(1 for task in tasks if task.done())
         cancelled_count = sum(1 for task in tasks if task.cancelled())
 
         experiment.logger.info(
@@ -663,177 +795,6 @@ async def process_request(client, experiment, request, worker_id, results, semap
                 return
 
             result = await make_request(client, experiment, request, request_id=request_id)
-            if result:
-                output_tokens = result[0]  # 第一个元素是output_tokens
-                # 原子性地更新token计数
-                new_total = tokens_counter.add(output_tokens)
-                results.append(result)
-
-                # 如果超过限制，记录日志
-                if hasattr(experiment, 'max_tokens') and new_total >= experiment.max_tokens:
-                    experiment.logger.info(
-                        f"Worker {worker_id} reached max tokens after processing: {new_total}/{experiment.max_tokens}")
-
-        except Exception as e:
-            logging.error(
-                f"Worker {worker_id} {experiment.config_round + 1} round for client {experiment.client_index} raised an exception: {e}")
-
-
-async def worker_with_queue(experiment, queue_manager, semaphore, results, worker_id, worker_json, qmp_per_worker):
-    """使用队列管理器的worker函数"""
-    assert worker_json is not None, "sample_content is None!"
-    assert isinstance(worker_json, list), f"sample_content is not a list! type={type(worker_json)}"
-    assert len(worker_json) > 0, "sample_content is empty!"
-
-    global_start_time = time.time()
-    request_count = 0
-    drift_time = 0
-    completed = 0
-    tasks = []
-    task_status = {}
-
-    # 创建线程安全的token计数器
-    tokens_counter = ThreadSafeCounter()
-
-    # 注册客户端到队列管理器
-    client_id = f"{experiment.client_id}_worker_{worker_id}"
-    # 移除直接注册，submit_request会自动处理
-    # await queue_manager.register_client(client_id, experiment.client.client_type)
-
-    # 获取客户端ID用于日志
-    main_client_id = getattr(experiment.client, 'client_id', 'unknown_client')
-
-    # 预先计算所有请求的时间点
-    request_times = calculate_all_request_times(experiment, qmp_per_worker)
-
-    for target_time in request_times:
-        if time.time() - global_start_time >= experiment.round_time:
-            break
-        current_time = time.time()
-        if target_time <= current_time:
-            # 如果目标时间已过，直接发送请求
-            drift_time = current_time - target_time
-        else:
-            # 如果还没到目标时间，先sleep
-            sleep_time = target_time - current_time
-            if sleep_time > 0:
-                sleep_start = time.time()
-                await asyncio.sleep(sleep_time)
-            else:
-                experiment.logger.warning(
-                    f"Client {main_client_id}: Warning: Negative sleep time detected: {sleep_time:.6f} seconds")
-                continue
-
-        # 发送请求到队列（不管是否需要sleep，都会执行到这里）
-        request = random.choice(worker_json)
-
-        # 设置优先级（短请求优先级更高）
-        priority = experiment.client.priority
-
-        # 生成request_id并在创建task时就集成
-        request_id = f"{main_client_id}_{str(uuid.uuid4())}"
-
-        task = asyncio.create_task(
-            process_request_with_queue(queue_manager, client_id, experiment, request,
-                                       worker_id, results, semaphore, tokens_counter,
-                                       priority, request_id)
-        )
-
-        # 在task_status中存储request_id和其他信息
-        task_status[task] = {
-            "request_id": request_id,
-            "start_time": time.time(),
-            "status": "running"
-        }
-
-        # 更新done回调以正确更新状态
-        def make_done_callback(task_ref):
-            def callback(t):
-                if task_ref in task_status:
-                    try:
-                        # 检查task是否成功完成并返回了有效结果
-                        if t.cancelled():
-                            status = "cancelled"
-                        elif t.exception():
-                            status = "failed"
-                        else:
-                            result = t.result()
-                            # 如果process_request返回了有效结果（不是None），标记为真正的completed
-                            # 否则标记为failed，这样abort时可以识别这些失败的请求
-                            status = "completed" if result is not None else "failed"
-
-                        task_status[task_ref].update({
-                            "status": status,
-                            "end_time": time.time()
-                        })
-                    except Exception as e:
-                        # 异常情况下标记为failed
-                        task_status[task_ref].update({
-                            "status": "failed",
-                            "end_time": time.time()
-                        })
-
-            return callback
-
-        task.add_done_callback(make_done_callback(task))
-        tasks.append(task)
-        request_count += 1
-
-    elapsed = time.time() - global_start_time
-    remaining_time = experiment.round_time - elapsed
-    if remaining_time > experiment.round_time * GLOBAL_CONFIG.get('buffer_ratio', 0.5) * 1.1:  # 只在剩余时间大于3秒时才sleep，防止误差
-        await asyncio.sleep(remaining_time)
-    else:
-        experiment.logger.info(f"Client {main_client_id}: reached the end of the round time.")
-
-    # 将task_status存储到experiment中，供abort使用
-    if hasattr(experiment, 'client'):
-        experiment.client.task_status = task_status
-
-    # 等待所有任务完成
-    if tasks:
-        # await asyncio.gather(*tasks, return_exceptions=True)
-
-        # 计算总耗时
-        total_elapsed_time = time.time() - global_start_time
-
-        completed = sum(1 for status in task_status.values() if status["status"] == "completed")
-        cancelled_count = sum(1 for task in tasks if task.cancelled())
-
-        experiment.logger.info(
-            f"Client {main_client_id} Worker {worker_id}: Total tasks: {request_count}, Completed: {completed}, Cancelled: {cancelled_count}")
-        experiment.logger.info(
-            f"Client {main_client_id} Worker {worker_id}: Task completion rate: {completed / len(tasks) * 100:.2f}%")
-        experiment.logger.info(
-            f"Client {main_client_id} Worker {worker_id}: Total tokens processed: {tokens_counter.value}")
-        experiment.logger.info(
-            f"Client {main_client_id} Worker {worker_id}: Total elapsed time: {total_elapsed_time:.2f} seconds, Round time: {experiment.round_time:.2f} seconds, More than round time: {total_elapsed_time - experiment.round_time:.2f} seconds")
-
-        for task in tasks:
-            task.cancel()
-
-    return completed, drift_time, request_count
-
-
-async def process_request_with_queue(queue_manager, client_id, experiment, request, worker_id, results, semaphore,
-                                     tokens_counter, priority=0, request_id=None):
-    """使用队列管理器处理请求"""
-    # 如果没有提供request_id，生成一个（向后兼容）
-    if request_id is None:
-        request_id = str(uuid.uuid4())
-
-    async with semaphore:
-        try:
-            # 检查当前token总数是否超限
-            if hasattr(experiment, 'max_tokens') and tokens_counter.value >= experiment.max_tokens:
-                experiment.logger.info(f"Worker {worker_id} reached max tokens limit ({experiment.max_tokens})")
-                return
-
-            result = await make_request_via_queue(
-                queue_manager, client_id, f"worker_{worker_id}",
-                request, experiment, priority, request_id
-            )
-
             if result:
                 output_tokens = result[0]  # 第一个元素是output_tokens
                 # 原子性地更新token计数
