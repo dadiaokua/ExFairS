@@ -354,7 +354,7 @@ def calculate_all_request_times(experiment, qmp_per_worker):
 
 
 def save_request_times_to_file(experiment, request_times, qmp_per_worker, global_start_time):
-    """将请求时间列表保存到文件中，按客户端分组"""
+    """将请求时间列表保存到文件中，按客户端分组，累积记录模式"""
     import os
     import json
     from datetime import datetime
@@ -371,20 +371,24 @@ def save_request_times_to_file(experiment, request_times, qmp_per_worker, global
     client_type = getattr(experiment.client, 'client_type', 'unknown')
     worker_id = getattr(experiment, 'worker_id', 'unknown_worker')
     
+    # 获取轮次信息
+    round_num = getattr(experiment, 'config_round', 0)
+    
     # 转换时间戳为相对时间（便于分析）
     relative_times = [t - global_start_time for t in request_times]
     
     # 准备要保存的数据
-    client_data = {
+    client_round_data = {
         'client_id': client_id,
         'client_type': client_type,
         'worker_id': worker_id,
+        'round_num': round_num,
         'qmp_per_worker': qmp_per_worker,
         'round_time': experiment.round_time,
         'distribution': experiment.distribution,
         'time_ratio': experiment.time_ratio,
         'global_start_time': global_start_time,
-        'global_start_time_iso': datetime.fromtimestamp(global_start_time).isoformat(),
+        'global_start_time_24h': datetime.fromtimestamp(global_start_time).strftime("%Y-%m-%d %H:%M:%S"),
         'total_requests': len(request_times),
         'request_times': {
             'absolute_timestamps': request_times,  # 绝对时间戳
@@ -398,7 +402,7 @@ def save_request_times_to_file(experiment, request_times, qmp_per_worker, global
             'min_interval': min(relative_times[i+1] - relative_times[i] for i in range(len(relative_times)-1)) if len(relative_times) > 1 else 0,
             'max_interval': max(relative_times[i+1] - relative_times[i] for i in range(len(relative_times)-1)) if len(relative_times) > 1 else 0
         },
-        'generated_at': datetime.now().isoformat()
+        'recorded_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     
     # 读取现有文件或创建新文件
@@ -413,26 +417,41 @@ def save_request_times_to_file(experiment, request_times, qmp_per_worker, global
     # 如果文件是新的，初始化结构
     if 'metadata' not in all_data:
         all_data['metadata'] = {
-            'created_at': datetime.now().isoformat(),
+            'created_at': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             'experiment_type': getattr(experiment, 'exp_type', 'unknown'),
-            'total_clients': 0
+            'total_clients': 0,
+            'total_rounds': 0
         }
-        all_data['clients'] = {}
+        all_data['experiments'] = {}
     
-    # 添加客户端数据
-    all_data['clients'][client_id] = client_data
-    all_data['metadata']['total_clients'] = len(all_data['clients'])
-    all_data['metadata']['last_updated'] = datetime.now().isoformat()
+    # 创建唯一的实验键：client_id + round_num
+    experiment_key = f"{client_id}_round_{round_num}"
+    
+    # 添加实验数据
+    all_data['experiments'][experiment_key] = client_round_data
+    
+    # 更新元数据
+    unique_clients = set()
+    unique_rounds = set()
+    for exp_key, exp_data in all_data['experiments'].items():
+        unique_clients.add(exp_data['client_id'])
+        unique_rounds.add(exp_data['round_num'])
+    
+    all_data['metadata']['total_clients'] = len(unique_clients)
+    all_data['metadata']['total_rounds'] = len(unique_rounds)
+    all_data['metadata']['total_experiments'] = len(all_data['experiments'])
+    all_data['metadata']['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
     # 保存到文件
     try:
         with open(filename, 'w', encoding='utf-8') as f:
             json.dump(all_data, f, indent=2, ensure_ascii=False)
         
-        experiment.logger.info(f"Request times saved to {filename} for client {client_id}")
+        experiment.logger.info(f"Request times saved to {filename} for {experiment_key}")
         experiment.logger.info(f"  - Total requests: {len(request_times)}")
         experiment.logger.info(f"  - Time span: {relative_times[-1] - relative_times[0]:.2f}s" if len(relative_times) > 1 else "  - Single request")
-        experiment.logger.info(f"  - Average interval: {client_data['statistics']['avg_interval']:.3f}s")
+        experiment.logger.info(f"  - Average interval: {client_round_data['statistics']['avg_interval']:.3f}s")
+        experiment.logger.info(f"  - File now contains {len(all_data['experiments'])} experiments from {len(unique_clients)} clients")
         
     except Exception as e:
         experiment.logger.error(f"Failed to save request times to {filename}: {e}")
