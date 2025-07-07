@@ -32,4 +32,7 @@ GLOBAL_CONFIG = {
     # vLLM日志控制
     "vllm_log_level": "WARNING",  # 可选: DEBUG, INFO, WARNING, ERROR, CRITICAL
     "suppress_vllm_engine_logs": True,  # 是否抑制引擎请求/完成日志
+    
+    # 队列监控配置
+    "queue_monitor_interval": 5,  # 队列监控间隔（秒）
 }

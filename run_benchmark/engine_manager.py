@@ -67,13 +67,70 @@ def setup_vllm_logging(log_level="WARNING", suppress_engine_logs=True):
             vllm_logger.addFilter(EngineLogFilter())
 
 
-logger = logging.getLogger(__name__)
-
-# 全局变量存储引擎进程
+# 全局变量存储引擎进程和监控任务
 vllm_process = None
+queue_monitor_task = None
 
 
-def get_gpu_count():
+async def monitor_engine_queue(engine, interval=5, logger=None):
+    """
+    监控引擎队列状态的异步任务
+    
+    Args:
+        engine: vLLM引擎实例
+        interval: 监控间隔（秒）
+    """
+    logger.info(f"开始监控引擎队列状态，间隔{interval}秒")
+    
+    while True:
+        try:
+            # 获取引擎状态信息
+            if hasattr(engine, 'engine') and hasattr(engine.engine, 'scheduler'):
+                scheduler = engine.engine.scheduler
+                
+                # 获取队列信息
+                waiting_queue_size = len(scheduler.waiting) if hasattr(scheduler, 'waiting') else 0
+                running_queue_size = len(scheduler.running) if hasattr(scheduler, 'running') else 0
+                swapped_queue_size = len(scheduler.swapped) if hasattr(scheduler, 'swapped') else 0
+                
+                # 获取优先级队列信息（如果存在）
+                priority_info = ""
+                if hasattr(scheduler, 'waiting') and scheduler.waiting:
+                    # 统计不同优先级的请求
+                    priority_counts = {}
+                    for seq_group in scheduler.waiting:
+                        priority = getattr(seq_group, 'priority', 0)
+                        priority_counts[priority] = priority_counts.get(priority, 0) + 1
+                    
+                    if priority_counts:
+                        priority_info = f", 优先级分布: {dict(sorted(priority_counts.items()))}"
+                
+                # 打印队列状态
+                logger.info(f"[队列监控] 等待队列: {waiting_queue_size}, 运行队列: {running_queue_size}, "
+                           f"交换队列: {swapped_queue_size}{priority_info}")
+                
+                # 如果有详细的序列信息，打印前几个请求的详情
+                if hasattr(scheduler, 'waiting') and scheduler.waiting and waiting_queue_size > 0:
+                    logger.info(f"[队列详情] 等待队列中的前3个请求:")
+                    for i, seq_group in enumerate(scheduler.waiting[:3]):
+                        request_id = getattr(seq_group, 'request_id', f'seq_{i}')
+                        priority = getattr(seq_group, 'priority', 0)
+                        arrival_time = getattr(seq_group, 'arrival_time', 0)
+                        current_time = time.time()
+                        wait_time = current_time - arrival_time if arrival_time > 0 else 0
+                        logger.info(f"  [{i+1}] ID: {request_id}, 优先级: {priority}, 等待时间: {wait_time:.2f}s")
+                
+            else:
+                logger.warning("[队列监控] 无法访问引擎调度器信息")
+                
+        except Exception as e:
+            logger.error(f"[队列监控] 监控过程中出现错误: {e}")
+        
+        # 等待指定间隔
+        await asyncio.sleep(interval)
+
+
+def get_gpu_count(logger):
     """获取可用的GPU数量"""
     try:
         # 方法1: 使用nvidia-ml-py (推荐)
@@ -129,9 +186,9 @@ def get_gpu_count():
         return 0
 
 
-def adjust_engine_config_for_resources(args):
+def adjust_engine_config_for_resources(args, logger):
     """根据可用资源调整引擎配置"""
-    gpu_count = get_gpu_count()
+    gpu_count = get_gpu_count(logger)
     
     if gpu_count == 0:
         logger.warning("未检测到GPU，将使用CPU模式（性能会显著降低）")
@@ -151,6 +208,8 @@ def adjust_engine_config_for_resources(args):
 
 async def start_vllm_engine(args, logger):
     """启动vLLM引擎"""
+    global queue_monitor_task
+    
     if not vllm_available:
         logger.error("vLLM not available, cannot start engine")
         return None
@@ -172,7 +231,7 @@ async def start_vllm_engine(args, logger):
             logger.info("ⓘ vLLM详细日志保持开启")
         
         # 调整配置以匹配可用资源
-        adjust_engine_config_for_resources(args)
+        adjust_engine_config_for_resources(args, logger)
         
         # 设置环境变量以减少警告和避免LLVM错误
         os.environ.setdefault("NCCL_SOCKET_IFNAME", "lo")
@@ -213,6 +272,11 @@ async def start_vllm_engine(args, logger):
         # 测试引擎是否正常工作
         await asyncio.sleep(5)  # 给引擎更多初始化时间
         
+        # 启动队列监控任务
+        monitor_interval = GLOBAL_CONFIG.get("queue_monitor_interval", 5)
+        queue_monitor_task = asyncio.create_task(monitor_engine_queue(engine, monitor_interval, logger))
+        logger.info(f"✓ 队列监控任务已启动，监控间隔: {monitor_interval}秒")
+        
         logger.info("vLLM AsyncLLMEngine started successfully!")
         return engine
         
@@ -225,7 +289,12 @@ async def start_vllm_engine(args, logger):
 
 def stop_vllm_engine(engine, logger):
     """停止vLLM引擎"""
-    global vllm_process
+    global vllm_process, queue_monitor_task
+    
+    # 停止队列监控任务
+    if queue_monitor_task and not queue_monitor_task.done():
+        queue_monitor_task.cancel()
+        logger.info("队列监控任务已停止")
     
     if engine:
         try:
@@ -252,16 +321,3 @@ def stop_vllm_engine(engine, logger):
             vllm_process = None
 
 
-def cleanup_vllm_processes():
-    """清理所有vLLM相关进程"""
-    try:
-        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-            try:
-                if 'vllm' in proc.info['name'].lower() or \
-                   any('vllm' in arg.lower() for arg in proc.info['cmdline'] if arg):
-                    proc.kill()
-                    logger.info(f"Killed vLLM process: {proc.info['pid']}")
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
-    except Exception as e:
-        logger.warning(f"Error during vLLM process cleanup: {e}") 
