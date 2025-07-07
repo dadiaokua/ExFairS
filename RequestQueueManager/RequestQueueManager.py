@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 from util.RequestUtil import make_request
 import os
+from config.Config import GLOBAL_CONFIG
 
 
 class QueueStrategy(Enum):
@@ -61,6 +62,7 @@ class RequestQueueManager:
         
         # 不同策略的特定数据结构
         self.priority_queue_list = []  # 改为列表，用于部分优先级
+        self.priority_queue_lock = asyncio.Lock()  # 添加锁保护优先级队列
         self.round_robin_index = 0  # 轮询索引
         self.client_request_counts: Dict[str, int] = {}  # 每个客户端的请求计数
         
@@ -72,6 +74,10 @@ class RequestQueueManager:
         self.total_requests_processed = 0
         self.start_time = None
         
+        # 队列监控配置
+        self.queue_monitor_interval = GLOBAL_CONFIG.get("queue_monitor_interval", 5)  # 队列监控间隔（秒）
+        self.queue_monitor_task = None  # 队列监控任务
+        
     def _setup_logger(self):
         """设置日志记录器"""
         logger = logging.getLogger("RequestQueueManager")
@@ -82,7 +88,6 @@ class RequestQueueManager:
             os.makedirs('log', exist_ok=True)
             
             # 使用全局配置中的时间戳
-            from config.Config import GLOBAL_CONFIG
             timestamp = GLOBAL_CONFIG.get("monitor_file_time", "default")
             
             # 创建文件处理器
@@ -144,6 +149,55 @@ class RequestQueueManager:
         }
         self.logger.info(f"Registered client: {client_id} (type: {client_type})")
     
+    async def _monitor_queue_status(self):
+        """队列状态监控协程"""
+        self.logger.info(f"[queue manager 队列监控] 监控已启动，间隔: {self.queue_monitor_interval}s")
+        
+        while self.workers_running:
+            try:
+                # 获取队列状态
+                normal_queue_size = self.request_queue.qsize()
+                
+                # 创建优先级队列的快照（只读操作，无需加锁）
+                priority_queue_snapshot = self.priority_queue_list.copy()
+                priority_queue_size = len(priority_queue_snapshot)
+                
+                # 统计不同优先级的请求数量
+                priority_counts = {}
+                for request in priority_queue_snapshot:
+                    priority = request.priority
+                    priority_counts[priority] = priority_counts.get(priority, 0) + 1
+                
+                # 获取前几个请求的详细信息
+                top_requests_info = []
+                for i, request in enumerate(priority_queue_snapshot[:3]):
+                    wait_time = time.time() - request.submit_time
+                    top_requests_info.append({
+                        'position': i + 1,
+                        'request_id': request.request_id[:12] + "...",  # 截断显示
+                        'client_id': request.client_id,
+                        'priority': request.priority,
+                        'wait_time': wait_time
+                    })
+                
+                # 计算总的待处理请求数
+                total_pending = normal_queue_size + priority_queue_size
+                
+                # 打印队列状态摘要
+                priority_info = ""
+                if priority_counts:
+                    priority_info = f", 优先级分布: {dict(sorted(priority_counts.items()))}"
+                
+                self.logger.info(f"[queue manager 队列监控] 总待处理: {total_pending} (普通队列: {normal_queue_size}, 优先级队列: {priority_queue_size}{priority_info})")
+                
+            except Exception as e:
+                self.logger.error(f"[queue manager 队列监控] 监控过程中出现错误: {e}")
+            
+            # 等待下一次监控
+            await asyncio.sleep(self.queue_monitor_interval)
+        
+        self.logger.info("[queue manager 队列监控] 监控已停止")
+    
     async def submit_request(self, start_time: float, client_id: str, worker_id: str, request_content: str, 
                            experiment: Any, priority: int = 0, request_id: str = None) -> str:
         """提交请求到队列"""
@@ -173,24 +227,26 @@ class RequestQueueManager:
             if self.strategy == QueueStrategy.PRIORITY:
                 # 修改部分优先级策略：数字越小的优先级越高，插入位置越靠前
                 # 注意：负数优先级表示更高的优先级，0表示默认优先级，正数表示较低的优先级
-                # 确定插入位置
-                if len(self.priority_queue_list) == 0:
-                    # 队列为空，直接添加
-                    self.priority_queue_list.append(request)
-                    insert_pos = 0
-                else:
-                    # 遍历队列找到合适的插入位置
-                    # 找到第一个优先级值大于当前请求的位置
-                    insert_pos = 0
-                    for i, queued_req in enumerate(self.priority_queue_list):
-                        if queued_req.priority > request.priority:
-                            insert_pos = i
-                            break
-                        else:
-                            insert_pos = i + 1  # 如果没找到，插入到末尾
-                    
-                    # 插入到计算出的位置
-                    self.priority_queue_list.insert(insert_pos, request)
+                # 使用锁保护优先级队列操作
+                async with self.priority_queue_lock:
+                    # 确定插入位置
+                    if len(self.priority_queue_list) == 0:
+                        # 队列为空，直接添加
+                        self.priority_queue_list.append(request)
+                        insert_pos = 0
+                    else:
+                        # 遍历队列找到合适的插入位置
+                        # 找到第一个优先级值大于当前请求的位置
+                        insert_pos = 0
+                        for i, queued_req in enumerate(self.priority_queue_list):
+                            if queued_req.priority > request.priority:
+                                insert_pos = i
+                                break
+                            else:
+                                insert_pos = i + 1  # 如果没找到，插入到末尾
+                        
+                        # 插入到计算出的位置
+                        self.priority_queue_list.insert(insert_pos, request)
                 
                 self.logger.info(f"Added request to priority queue: {client_id} (request_id: {request_id}, priority: {priority}, inserted at position: {insert_pos}/{len(self.priority_queue_list)})")
             else:
@@ -245,9 +301,10 @@ class RequestQueueManager:
     
     async def _get_priority_request(self) -> Optional[QueuedRequest]:
         """部分优先级策略：从列表头部取出请求"""
-        if self.priority_queue_list:
-            return self.priority_queue_list.pop(0)  # 从头部取出（FIFO基础上的部分优先级）
-        return None
+        async with self.priority_queue_lock:
+            if self.priority_queue_list:
+                return self.priority_queue_list.pop(0)  # 从头部取出（FIFO基础上的部分优先级）
+            return None
     
     async def _get_round_robin_request(self) -> Optional[QueuedRequest]:
         """轮询策略"""
@@ -386,8 +443,12 @@ class RequestQueueManager:
             for i in range(num_workers)
         ]
         
+        # 启动队列监控协程
+        self.queue_monitor_task = asyncio.create_task(self._monitor_queue_status())
+        
         try:
-            await asyncio.gather(*workers)
+            # 等待所有工作协程和监控协程
+            await asyncio.gather(*workers, self.queue_monitor_task)
         except Exception as e:
             self.logger.error(f"Error in queue processing: {e}")
         finally:
@@ -432,17 +493,29 @@ class RequestQueueManager:
         self.logger.info("Stopping request queue manager")
         self.workers_running = False
         self.is_running = False
+        
+        # 停止队列监控协程
+        if self.queue_monitor_task and not self.queue_monitor_task.done():
+            self.queue_monitor_task.cancel()
+            try:
+                await self.queue_monitor_task
+            except asyncio.CancelledError:
+                pass
+            self.logger.info("Queue monitor task stopped")
     
     def get_statistics(self) -> Dict[str, Any]:
         """获取统计信息"""
         total_time = time.time() - self.start_time if self.start_time else 0
+        
+        # 创建优先级队列的快照以避免竞争条件
+        priority_queue_size = len(self.priority_queue_list)
         
         stats = {
             'total_requests_processed': self.total_requests_processed,
             'total_time': total_time,
             'requests_per_second': self.total_requests_processed / total_time if total_time > 0 else 0,
             'queue_size': self.request_queue.qsize(),
-            'priority_queue_size': len(self.priority_queue_list),
+            'priority_queue_size': priority_queue_size,
             'client_stats': self.client_stats.copy(),
             'client_token_stats': self.client_token_stats.copy()
         }
@@ -488,9 +561,10 @@ class RequestQueueManager:
             except asyncio.QueueEmpty:
                 break
         
-        # 清空优先级队列
-        priority_queue_cleared_count = len(self.priority_queue_list)
-        self.priority_queue_list.clear()
+        # 清空优先级队列（使用锁保护）
+        async with self.priority_queue_lock:
+            priority_queue_cleared_count = len(self.priority_queue_list)
+            self.priority_queue_list.clear()
         
         # 记录清空的请求数量
         total_cleared = queue_cleared_count + priority_queue_cleared_count
@@ -541,8 +615,10 @@ class RequestQueueManager:
             except asyncio.QueueFull:
                 self.logger.warning(f"Queue full when restoring request {request.request_id}")
         
-        # 检查优先级队列
-        for request in self.priority_queue_list:
+        # 检查优先级队列（创建快照以避免竞争条件）
+        # 注意：这里可能存在轻微的竞争条件，但对于统计目的是可接受的
+        priority_queue_snapshot = self.priority_queue_list.copy()
+        for request in priority_queue_snapshot:
             if client_id is None or request.client_id == client_id:
                 active_request_ids.append(request.request_id)
         
@@ -583,16 +659,17 @@ class RequestQueueManager:
             except asyncio.QueueFull:
                 self.logger.warning(f"Queue full when restoring request {request.request_id}")
         
-        # 从优先级队列中移除
-        original_priority_queue = self.priority_queue_list.copy()
-        self.priority_queue_list = []
-        
-        for request in original_priority_queue:
-            if request.request_id not in request_ids_set:
-                self.priority_queue_list.append(request)
-            else:
-                aborted_count += 1
-                self.logger.debug(f"Aborted request from priority queue: {request.request_id}")
+        # 从优先级队列中移除（使用锁保护）
+        async with self.priority_queue_lock:
+            original_priority_queue = self.priority_queue_list.copy()
+            self.priority_queue_list = []
+            
+            for request in original_priority_queue:
+                if request.request_id not in request_ids_set:
+                    self.priority_queue_list.append(request)
+                else:
+                    aborted_count += 1
+                    self.logger.debug(f"Aborted request from priority queue: {request.request_id}")
         
         if aborted_count > 0:
             self.logger.info(f"Successfully aborted {aborted_count} requests from queue")

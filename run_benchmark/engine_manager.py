@@ -106,12 +106,12 @@ async def monitor_engine_queue(engine, interval=5, logger=None):
                         priority_info = f", 优先级分布: {dict(sorted(priority_counts.items()))}"
                 
                 # 打印队列状态
-                logger.info(f"[队列监控] 等待队列: {waiting_queue_size}, 运行队列: {running_queue_size}, "
+                logger.info(f"[vllm engine 队列监控] 等待队列: {waiting_queue_size}, 运行队列: {running_queue_size}, "
                            f"交换队列: {swapped_queue_size}{priority_info}")
                 
                 # 如果有详细的序列信息，打印前几个请求的详情
                 if hasattr(scheduler, 'waiting') and scheduler.waiting and waiting_queue_size > 0:
-                    logger.info(f"[队列详情] 等待队列中的前3个请求:")
+                    logger.info(f"[vllm engine 队列详情] 等待队列中的前3个请求:")
                     for i, seq_group in enumerate(scheduler.waiting[:3]):
                         request_id = getattr(seq_group, 'request_id', f'seq_{i}')
                         priority = getattr(seq_group, 'priority', 0)
@@ -121,10 +121,10 @@ async def monitor_engine_queue(engine, interval=5, logger=None):
                         logger.info(f"  [{i+1}] ID: {request_id}, 优先级: {priority}, 等待时间: {wait_time:.2f}s")
                 
             else:
-                logger.warning("[队列监控] 无法访问引擎调度器信息")
+                logger.warning("[vllm engine 队列监控] 无法访问引擎调度器信息")
                 
         except Exception as e:
-            logger.error(f"[队列监控] 监控过程中出现错误: {e}")
+            logger.error(f"[vllm engine 队列监控] 监控过程中出现错误: {e}")
         
         # 等待指定间隔
         await asyncio.sleep(interval)
@@ -275,7 +275,7 @@ async def start_vllm_engine(args, logger):
         # 启动队列监控任务
         monitor_interval = GLOBAL_CONFIG.get("queue_monitor_interval", 5)
         queue_monitor_task = asyncio.create_task(monitor_engine_queue(engine, monitor_interval, logger))
-        logger.info(f"✓ 队列监控任务已启动，监控间隔: {monitor_interval}秒")
+        logger.info(f"✓ vllm engine 队列监控任务已启动，监控间隔: {monitor_interval}秒")
         
         logger.info("vLLM AsyncLLMEngine started successfully!")
         return engine
