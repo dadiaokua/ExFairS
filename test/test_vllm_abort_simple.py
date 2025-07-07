@@ -28,7 +28,7 @@ async def collect_generation_output(engine, prompt: str, sampling_params, reques
     """收集生成输出"""
     results = []
     try:
-        logger.info(f"开始处理请求: {request_id}")
+        logger.debug(f"开始处理请求: {request_id}")
         async for output in engine.generate(prompt, sampling_params, request_id):
             results.append(output)
             # 每收集到一些输出就记录一下

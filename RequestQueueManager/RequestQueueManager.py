@@ -93,7 +93,7 @@ class RequestQueueManager:
             
             # 创建文件处理器
             fh = logging.FileHandler(filename=f'log/request_queue_manager_{timestamp}.log', encoding="utf-8", mode="a")
-            fh.setLevel(logging.INFO)
+            fh.setLevel(logging.DEBUG)
             
             # 创建控制台处理器
             ch = logging.StreamHandler()
@@ -337,11 +337,11 @@ class RequestQueueManager:
                         # 插入到计算出的位置
                         self.priority_queue_list.insert(insert_pos, request)
                 
-                self.logger.info(f"Added request to priority queue: {client_id} (request_id: {request_id}, priority: {priority}, inserted at position: {insert_pos}/{len(self.priority_queue_list)})")
+                self.logger.debug(f"Added request to priority queue: {client_id} (request_id: {request_id}, priority: {priority}, inserted at position: {insert_pos}/{len(self.priority_queue_list)})")
             else:
                 # 其他策略使用普通队列
                 await self.request_queue.put(request)
-                self.logger.info(f"Submitted request from {client_id} to queue (request_id: {request_id})")
+                self.logger.debug(f"Submitted request from {client_id} to queue (request_id: {request_id})")
             
             return request_id  # 返回传入的或生成的request_id
         except asyncio.QueueFull:
