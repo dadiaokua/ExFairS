@@ -36,12 +36,16 @@ def parse_args(logger):
     parser.add_argument('--short_client_qpm_ratio', type=float, default=1.0, help='Short client QPM ratio')
     parser.add_argument('--long_qpm', type=str, default="60", help='Long request QPM, space-separated')
     parser.add_argument('--long_client_qpm_ratio', type=float, default=1.0, help='Long client QPM ratio')
+    parser.add_argument('--mix_qpm', type=str, default="60", help='MIX request QPM, space-separated')
+    parser.add_argument('--mix_client_qpm_ratio', type=float, default=1.0, help='MIX client QPM ratio')
     
     # 客户端配置参数
     parser.add_argument('--short_clients', type=int, default=1, help='Number of short request clients')
     parser.add_argument('--short_clients_slo', type=str, default="10", help='Short client SLO, space-separated')
     parser.add_argument('--long_clients', type=int, default=1, help='Number of long request clients')
     parser.add_argument('--long_clients_slo', type=str, default="10", help='Long client SLO, space-separated')
+    parser.add_argument('--mix_clients', type=int, default=0, help='Number of MIX request clients')
+    parser.add_argument('--mix_clients_slo', type=str, default="10", help='MIX client SLO, space-separated')
     
     # 并发和性能参数
     parser.add_argument('--concurrency', type=int, default=5, help='Number of concurrent requests')
@@ -108,12 +112,18 @@ def validate_args(args, logger):
         if isinstance(args.long_qpm, str):
             args.long_qpm = [safe_float_conversion(q.strip()) for q in args.long_qpm.split()]
         
+        if isinstance(args.mix_qpm, str):
+            args.mix_qpm = [safe_float_conversion(q.strip()) for q in args.mix_qpm.split()]
+        
         # 处理SLO参数
         if isinstance(args.short_clients_slo, str):
             args.short_clients_slo = [safe_float_conversion(s.strip(), 10) for s in args.short_clients_slo.split()]
         
         if isinstance(args.long_clients_slo, str):
             args.long_clients_slo = [safe_float_conversion(s.strip(), 10) for s in args.long_clients_slo.split()]
+        
+        if isinstance(args.mix_clients_slo, str):
+            args.mix_clients_slo = [safe_float_conversion(s.strip(), 10) for s in args.mix_clients_slo.split()]
         
         # 验证参数数量匹配
         if len(args.short_qpm) > 1 and len(args.short_qpm) != args.short_clients:
@@ -122,11 +132,17 @@ def validate_args(args, logger):
         if len(args.long_qpm) > 1 and len(args.long_qpm) != args.long_clients:
             logger.warning(f"Long QPM count ({len(args.long_qpm)}) doesn't match long clients ({args.long_clients})")
         
+        if len(args.mix_qpm) > 1 and len(args.mix_qpm) != args.mix_clients:
+            logger.warning(f"MIX QPM count ({len(args.mix_qpm)}) doesn't match MIX clients ({args.mix_clients})")
+        
         if len(args.short_clients_slo) > 1 and len(args.short_clients_slo) != args.short_clients:
             logger.warning(f"Short client SLO count ({len(args.short_clients_slo)}) doesn't match short clients ({args.short_clients})")
         
         if len(args.long_clients_slo) > 1 and len(args.long_clients_slo) != args.long_clients:
             logger.warning(f"Long client SLO count ({len(args.long_clients_slo)}) doesn't match long clients ({args.long_clients})")
+        
+        if len(args.mix_clients_slo) > 1 and len(args.mix_clients_slo) != args.mix_clients:
+            logger.warning(f"MIX client SLO count ({len(args.mix_clients_slo)}) doesn't match MIX clients ({args.mix_clients})")
         
         return args
         
@@ -146,10 +162,13 @@ def print_benchmark_config(args, logger):
     logger.info(f"Distribution: {args.distribution}")
     logger.info(f"Short QPM: {args.short_qpm}")
     logger.info(f"Long QPM: {args.long_qpm}")
+    logger.info(f"MIX QPM: {args.mix_qpm}")
     logger.info(f"Short Clients: {args.short_clients}")
     logger.info(f"Long Clients: {args.long_clients}")
+    logger.info(f"MIX Clients: {args.mix_clients}")
     logger.info(f"Short Client SLO: {args.short_clients_slo}")
     logger.info(f"Long Client SLO: {args.long_clients_slo}")
+    logger.info(f"MIX Client SLO: {args.mix_clients_slo}")
     logger.info(f"Concurrency: {args.concurrency}")
     logger.info(f"Num Requests: {args.num_requests}")
     logger.info(f"Request Timeout: {args.request_timeout}")
