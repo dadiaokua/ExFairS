@@ -84,41 +84,52 @@ async def monitor_engine_queue(engine, interval=5, logger=None):
     
     while True:
         try:
-            # 获取引擎状态信息
+            # 使用正确的scheduler访问方法
             if hasattr(engine, 'engine') and hasattr(engine.engine, 'scheduler'):
-                scheduler = engine.engine.scheduler
+                scheduler_list = engine.engine.scheduler
                 
-                # 获取队列信息
-                waiting_queue_size = len(scheduler.waiting) if hasattr(scheduler, 'waiting') else 0
-                running_queue_size = len(scheduler.running) if hasattr(scheduler, 'running') else 0
-                swapped_queue_size = len(scheduler.swapped) if hasattr(scheduler, 'swapped') else 0
-                
-                # 获取优先级队列信息（如果存在）
-                priority_info = ""
-                if hasattr(scheduler, 'waiting') and scheduler.waiting:
-                    # 统计不同优先级的请求
-                    priority_counts = {}
-                    for seq_group in scheduler.waiting:
-                        priority = getattr(seq_group, 'priority', 0)
-                        priority_counts[priority] = priority_counts.get(priority, 0) + 1
+                # scheduler是一个list，获取第一个调度器对象
+                if isinstance(scheduler_list, list) and len(scheduler_list) > 0:
+                    scheduler = scheduler_list[0]
                     
-                    if priority_counts:
-                        priority_info = f", 优先级分布: {dict(sorted(priority_counts.items()))}"
-                
-                # 打印队列状态
-                logger.info(f"[vllm engine 队列监控] 等待队列: {waiting_queue_size}, 运行队列: {running_queue_size}, "
-                           f"交换队列: {swapped_queue_size}{priority_info}")
-                
-                # 如果有详细的序列信息，打印前几个请求的详情
-                if hasattr(scheduler, 'waiting') and scheduler.waiting and waiting_queue_size > 0:
-                    logger.info(f"[vllm engine 队列详情] 等待队列中的前3个请求:")
-                    for i, seq_group in enumerate(scheduler.waiting[:3]):
-                        request_id = getattr(seq_group, 'request_id', f'seq_{i}')
-                        priority = getattr(seq_group, 'priority', 0)
-                        arrival_time = getattr(seq_group, 'arrival_time', 0)
-                        current_time = time.time()
-                        wait_time = current_time - arrival_time if arrival_time > 0 else 0
-                        logger.info(f"  [{i+1}] ID: {request_id}, 优先级: {priority}, 等待时间: {wait_time:.2f}s")
+                    # 获取队列信息
+                    waiting_queue_size = len(scheduler.waiting) if hasattr(scheduler, 'waiting') else 0
+                    running_queue_size = len(scheduler.running) if hasattr(scheduler, 'running') else 0
+                    swapped_queue_size = len(scheduler.swapped) if hasattr(scheduler, 'swapped') else 0
+                    
+                    # 获取总的未完成请求数
+                    total_unfinished = 0
+                    if hasattr(scheduler, 'get_num_unfinished_seq_groups'):
+                        total_unfinished = scheduler.get_num_unfinished_seq_groups()
+                    
+                    # 获取优先级队列信息（如果存在）
+                    priority_info = ""
+                    if hasattr(scheduler, 'waiting') and scheduler.waiting:
+                        # 统计不同优先级的请求
+                        priority_counts = {}
+                        for seq_group in scheduler.waiting:
+                            priority = getattr(seq_group, 'priority', 0)
+                            priority_counts[priority] = priority_counts.get(priority, 0) + 1
+                        
+                        if priority_counts:
+                            priority_info = f", 优先级分布: {dict(sorted(priority_counts.items()))}"
+                    
+                    # 打印队列状态
+                    logger.info(f"[vllm engine 队列监控] 等待队列: {waiting_queue_size}, 运行队列: {running_queue_size}, "
+                               f"交换队列: {swapped_queue_size}, 总未完成: {total_unfinished}{priority_info}")
+                    
+                    # 如果有详细的序列信息，打印前几个请求的详情
+                    if hasattr(scheduler, 'waiting') and scheduler.waiting and waiting_queue_size > 0:
+                        logger.info(f"[vllm engine 队列详情] 等待队列中的前3个请求:")
+                        for i, seq_group in enumerate(scheduler.waiting[:3]):
+                            request_id = getattr(seq_group, 'request_id', f'seq_{i}')
+                            priority = getattr(seq_group, 'priority', 0)
+                            arrival_time = getattr(seq_group, 'arrival_time', 0)
+                            current_time = time.time()
+                            wait_time = current_time - arrival_time if arrival_time > 0 else 0
+                            logger.info(f"  [{i+1}] ID: {request_id}, 优先级: {priority}, 等待时间: {wait_time:.2f}s")
+                else:
+                    logger.warning(f"[vllm engine 队列监控] 调度器不是list或为空: {type(scheduler_list)}")
                 
             else:
                 logger.warning("[vllm engine 队列监控] 无法访问引擎调度器信息")
