@@ -81,8 +81,7 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
         qpm_value = safe_float_conversion(args.short_qpm[0] if len(args.short_qpm) == 1 else args.short_qpm[index])
         slo_value = safe_float_conversion(
             args.short_clients_slo[0] if len(args.short_clients_slo) == 1 else args.short_clients_slo[index], 10)
-        logger.info(f"Creating short client {index}: qpm={qpm_value}, slo={slo_value}")
-        
+
         client = BenchmarkClient(
             client_type='short',
             client_index=index,
