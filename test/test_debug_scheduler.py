@@ -36,50 +36,50 @@ async def debug_scheduler_structure(engine):
     
     try:
         logger.info("引擎类型: " + str(type(engine)))
-        logger.info("引擎属性: " + str(dir(engine)))
         
         if hasattr(engine, 'engine'):
             inner_engine = engine.engine
             logger.info("内部引擎类型: " + str(type(inner_engine)))
-            logger.info("内部引擎属性: " + str([attr for attr in dir(inner_engine) if not attr.startswith('_')]))
             
             if hasattr(inner_engine, 'scheduler'):
                 scheduler = inner_engine.scheduler
                 logger.info("调度器类型: " + str(type(scheduler)))
-                logger.info("调度器属性: " + str([attr for attr in dir(scheduler) if not attr.startswith('_')]))
                 
-                # 检查可能的队列属性
-                queue_attrs = ['waiting', 'running', 'swapped', 'waiting_queue', 'running_queue', 
-                              'pending', 'active', 'ready', 'scheduled', 'seq_groups']
-                
-                for attr in queue_attrs:
-                    if hasattr(scheduler, attr):
-                        value = getattr(scheduler, attr)
-                        logger.info(f"找到队列属性 {attr}: {type(value)}, 长度: {len(value) if hasattr(value, '__len__') else 'N/A'}")
-                
-                # 检查是否有get_xxx方法
-                get_methods = [method for method in dir(scheduler) if method.startswith('get_')]
-                if get_methods:
-                    logger.info(f"找到get方法: {get_methods}")
-                
-                # 检查是否有num_xxx属性
-                num_attrs = [attr for attr in dir(scheduler) if 'num' in attr.lower()]
-                if num_attrs:
-                    logger.info(f"找到num属性: {num_attrs}")
-                    
-                # 尝试访问一些可能的状态方法
-                status_methods = ['get_num_unfinished_seq_groups', 'get_running_queue', 'get_waiting_queue']
-                for method_name in status_methods:
-                    if hasattr(scheduler, method_name):
-                        try:
-                            method = getattr(scheduler, method_name)
-                            if callable(method):
-                                result = method()
-                                logger.info(f"方法 {method_name}() 返回: {result} (类型: {type(result)})")
-                        except Exception as e:
-                            logger.info(f"调用 {method_name}() 失败: {e}")
+                if isinstance(scheduler, list):
+                    logger.info(f"调度器是一个list，长度: {len(scheduler)}")
+                    for i, item in enumerate(scheduler):
+                        logger.info(f"  调度器[{i}] 类型: {type(item)}")
+                        if hasattr(item, '__dict__'):
+                            logger.info(f"  调度器[{i}] 属性: {[attr for attr in dir(item) if not attr.startswith('_')]}")
+                            
+                            # 检查这个调度器对象的队列属性
+                            queue_attrs = ['waiting', 'running', 'swapped', 'waiting_queue', 'running_queue']
+                            for attr in queue_attrs:
+                                if hasattr(item, attr):
+                                    value = getattr(item, attr)
+                                    logger.info(f"    找到队列属性 {attr}: {type(value)}, 长度: {len(value) if hasattr(value, '__len__') else 'N/A'}")
+                else:
+                    logger.info("调度器不是list类型")
+                    logger.info("调度器属性: " + str([attr for attr in dir(scheduler) if not attr.startswith('_')]))
             else:
                 logger.warning("内部引擎没有scheduler属性")
+                
+            # 检查是否有其他获取队列信息的方法
+            possible_methods = [
+                'get_num_unfinished_requests',
+                'has_unfinished_requests', 
+                'get_scheduler_config'
+            ]
+            
+            for method_name in possible_methods:
+                if hasattr(inner_engine, method_name):
+                    try:
+                        method = getattr(inner_engine, method_name)
+                        if callable(method):
+                            result = method()
+                            logger.info(f"内部引擎方法 {method_name}() 返回: {result}")
+                    except Exception as e:
+                        logger.info(f"调用 {method_name}() 失败: {e}")
         else:
             logger.warning("引擎没有engine属性")
             
@@ -131,46 +131,66 @@ async def debug_scheduler_state(engine, context=""):
             
             logger.info(f"[{context}] 调试scheduler状态:")
             
-            # 尝试不同的访问方法
-            possible_attrs = [
-                'waiting', 'running', 'swapped', 
-                'waiting_queue', 'running_queue', 'swapped_queue',
-                'pending', 'active', 'ready', 'scheduled'
-            ]
+            if isinstance(scheduler, list):
+                logger.info(f"  调度器list长度: {len(scheduler)}")
+                
+                for i, item in enumerate(scheduler):
+                    logger.info(f"  === 调度器[{i}] ===")
+                    
+                    # 尝试不同的访问方法
+                    possible_attrs = [
+                        'waiting', 'running', 'swapped', 
+                        'waiting_queue', 'running_queue', 'swapped_queue',
+                        'pending', 'active', 'ready', 'scheduled'
+                    ]
+                    
+                    for attr in possible_attrs:
+                        if hasattr(item, attr):
+                            try:
+                                value = getattr(item, attr)
+                                if hasattr(value, '__len__'):
+                                    logger.info(f"    {attr}: {len(value)} 个项目")
+                                    if len(value) > 0:
+                                        logger.info(f"      内容类型: {[type(x) for x in list(value)[:2]]}")
+                                else:
+                                    logger.info(f"    {attr}: {value}")
+                            except Exception as e:
+                                logger.info(f"    {attr}: 访问失败 - {e}")
+                    
+                    # 尝试一些可能的方法
+                    possible_methods = [
+                        'get_num_unfinished_seq_groups',
+                        'get_waiting_queue',
+                        'get_running_queue', 
+                        'num_batched_tokens'
+                    ]
+                    
+                    for method_name in possible_methods:
+                        if hasattr(item, method_name):
+                            try:
+                                method = getattr(item, method_name)
+                                if callable(method):
+                                    result = method()
+                                    logger.info(f"    {method_name}(): {result}")
+                            except Exception as e:
+                                logger.info(f"    {method_name}(): 调用失败 - {e}")
+            else:
+                logger.info("  调度器不是list类型，使用原来的方法")
+        
+        # 检查引擎级别的方法
+        if hasattr(engine, 'engine'):
+            inner_engine = engine.engine
+            engine_methods = ['get_num_unfinished_requests', 'has_unfinished_requests']
             
-            for attr in possible_attrs:
-                if hasattr(scheduler, attr):
+            for method_name in engine_methods:
+                if hasattr(inner_engine, method_name):
                     try:
-                        value = getattr(scheduler, attr)
-                        if hasattr(value, '__len__'):
-                            logger.info(f"  {attr}: {len(value)} 个项目")
-                            if len(value) > 0 and hasattr(value, '__iter__'):
-                                # 显示前几个项目的信息
-                                for idx, item in enumerate(list(value)[:3]):
-                                    logger.info(f"    [{idx}] {type(item)} - {str(item)[:100]}")
-                        else:
-                            logger.info(f"  {attr}: {value}")
-                    except Exception as e:
-                        logger.info(f"  {attr}: 访问失败 - {e}")
-            
-            # 尝试一些可能的方法
-            possible_methods = [
-                'get_num_unfinished_seq_groups',
-                'get_running_queue',
-                'get_waiting_queue', 
-                'num_batched_tokens',
-                'get_current_queue_status'
-            ]
-            
-            for method_name in possible_methods:
-                if hasattr(scheduler, method_name):
-                    try:
-                        method = getattr(scheduler, method_name)
+                        method = getattr(inner_engine, method_name)
                         if callable(method):
                             result = method()
-                            logger.info(f"  {method_name}(): {result}")
+                            logger.info(f"  引擎方法 {method_name}(): {result}")
                     except Exception as e:
-                        logger.info(f"  {method_name}(): 调用失败 - {e}")
+                        logger.info(f"  引擎方法 {method_name}(): 调用失败 - {e}")
                         
     except Exception as e:
         logger.error(f"调试scheduler状态失败: {e}")
