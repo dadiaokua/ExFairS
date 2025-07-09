@@ -146,17 +146,21 @@ def plot_comprehensive_results(sorted_all_results, args_concurrency, total_time,
     for result in sorted_all_results:
         clients.add(f'{result[0]["client_index"]}_slo_{result[0]["latency_slo"]}')
 
-    # 将clients分为short和long两组
+    # 将clients分为short、long和mix三组
     short_clients = sorted([c for c in clients if "short" in c])
     long_clients = sorted([c for c in clients if "long" in c])
+    mix_clients = sorted([c for c in clients if "mix" in c])
 
     print(f"Short clients: {short_clients}")
     print(f"Long clients: {long_clients}")
+    print(f"MIX clients: {mix_clients}")
 
     # 暖色系用于short clients
     warm_colors = ['#FF4D4D', '#FFA64D', '#FFD700', '#FF69B4', '#FF8C69']
     # 冷色系用于long clients  
     cool_colors = ['#4169E1', '#00CED1', '#6495ED', '#483D8B', '#008B8B']
+    # 中性色系用于mix clients
+    mix_colors = ['#9370DB', '#32CD32', '#FF6347', '#20B2AA', '#DAA520']
 
     # 创建一个共享图例的句柄和标签列表
     legend_handles = []
@@ -164,49 +168,49 @@ def plot_comprehensive_results(sorted_all_results, args_concurrency, total_time,
 
     # 绘制性能指标
     # 1. 成功率
-    plot_client_metric(axs1[0], sorted_all_results, short_clients, long_clients,
-                       warm_colors, cool_colors, "success_rate",
+    plot_client_metric(axs1[0], sorted_all_results, short_clients, long_clients, mix_clients,
+                       warm_colors, cool_colors, mix_colors, "success_rate",
                        "Success Rate (%)", legend_handles, legend_labels)
 
     # 2. 每秒令牌数
-    plot_client_metric(axs1[1], sorted_all_results, short_clients, long_clients,
-                       warm_colors, cool_colors, "tokens_per_second",
+    plot_client_metric(axs1[1], sorted_all_results, short_clients, long_clients, mix_clients,
+                       warm_colors, cool_colors, mix_colors, "tokens_per_second",
                        "Tokens/s", legend_handles, legend_labels)
 
     # 3. 延迟
-    plot_client_metric(axs1[2], sorted_all_results, short_clients, long_clients,
-                       warm_colors, cool_colors, "latency",
+    plot_client_metric(axs1[2], sorted_all_results, short_clients, long_clients, mix_clients,
+                       warm_colors, cool_colors, mix_colors, "latency",
                        "Latency (ms)", legend_handles, legend_labels)
 
     # 4. 首个令牌时间
-    plot_client_metric(axs1[3], sorted_all_results, short_clients, long_clients,
-                       warm_colors, cool_colors, "time_to_first_token",
+    plot_client_metric(axs1[3], sorted_all_results, short_clients, long_clients, mix_clients,
+                       warm_colors, cool_colors, mix_colors, "time_to_first_token",
                        "Time to First Token (ms)", legend_handles, legend_labels)
 
     # 5. 每秒请求数
-    plot_client_metric(axs1[4], sorted_all_results, short_clients, long_clients,
-                       warm_colors, cool_colors, "requests_per_second",
+    plot_client_metric(axs1[4], sorted_all_results, short_clients, long_clients, mix_clients,
+                       warm_colors, cool_colors, mix_colors, "requests_per_second",
                        "Requests per Second", legend_handles, legend_labels)
 
     # 6. 每个客户端的服务使用量
-    plot_client_metric(axs1[5], sorted_all_results, short_clients, long_clients,
-                       warm_colors, cool_colors, "service",
+    plot_client_metric(axs1[5], sorted_all_results, short_clients, long_clients, mix_clients,
+                       warm_colors, cool_colors, mix_colors, "service",
                        "Service Usage", legend_handles, legend_labels)
 
     # 7. 成功请求数
-    plot_client_metric(axs1[6], sorted_all_results, short_clients, long_clients,
-                       warm_colors, cool_colors, "successful_requests",
+    plot_client_metric(axs1[6], sorted_all_results, short_clients, long_clients, mix_clients,
+                       warm_colors, cool_colors, mix_colors, "successful_requests",
                        "Successful Requests", legend_handles, legend_labels)
 
     # 8. 违反SLO的请求数量
-    plot_client_metric(axs1[7], sorted_all_results, short_clients, long_clients,
-                       warm_colors, cool_colors, "slo_violation_count",
+    plot_client_metric(axs1[7], sorted_all_results, short_clients, long_clients, mix_clients,
+                       warm_colors, cool_colors, mix_colors, "slo_violation_count",
                        "Slo Violation Request Numbers", legend_handles, legend_labels)
 
     # 在性能指标图底部添加共享图例
     fig1.legend(handles=legend_handles, labels=legend_labels,
                loc='center', bbox_to_anchor=(0.5, 0.02),
-               ncol=len(short_clients) + len(long_clients),
+               ncol=len(short_clients) + len(long_clients) + len(mix_clients),
                fontsize=10)
 
     # 优化布局
@@ -242,14 +246,17 @@ def plot_fairness_results(sorted_all_results, args_concurrency, total_time, file
     for result in sorted_all_results:
         clients.add(f'{result[0]["client_index"]}_slo_{result[0]["latency_slo"]}')
 
-    # 将clients分为short和long两组
+    # 将clients分为short、long和mix三组
     short_clients = sorted([c for c in clients if "short" in c])
     long_clients = sorted([c for c in clients if "long" in c])
+    mix_clients = sorted([c for c in clients if "mix" in c])
 
     # 暖色系用于short clients
     warm_colors = ['#FF4D4D', '#FFA64D', '#FFD700', '#FF69B4', '#FF8C69']
     # 冷色系用于long clients  
     cool_colors = ['#4169E1', '#00CED1', '#6495ED', '#483D8B', '#008B8B']
+    # 中性色系用于mix clients
+    mix_colors = ['#9370DB', '#32CD32', '#FF6347', '#20B2AA', '#DAA520']
 
     # 创建一个共享图例的句柄和标签列表
     legend_handles = []
@@ -257,8 +264,8 @@ def plot_fairness_results(sorted_all_results, args_concurrency, total_time, file
 
     # 绘制公平性指标
     # 1. Fairness Ratio
-    plot_client_metric(axs2[0], sorted_all_results, short_clients, long_clients,
-                       warm_colors, cool_colors, "fairness_ratio",
+    plot_client_metric(axs2[0], sorted_all_results, short_clients, long_clients, mix_clients,
+                       warm_colors, cool_colors, mix_colors, "fairness_ratio",
                        "Fairness Ratio", legend_handles, legend_labels)
 
     # 2. Jain's公平性指数
@@ -281,8 +288,8 @@ def plot_fairness_results(sorted_all_results, args_concurrency, total_time, file
         axs2[1].set_ylabel("Fairness Index")
     
     # 3. credit值
-    plot_client_metric(axs2[2], sorted_all_results, short_clients, long_clients,
-                       warm_colors, cool_colors, "credit",
+    plot_client_metric(axs2[2], sorted_all_results, short_clients, long_clients, mix_clients,
+                       warm_colors, cool_colors, mix_colors, "credit",
                        "Clients Credit", legend_handles, legend_labels, ylim=None)
 
     # 为第三张图添加图例
@@ -303,10 +310,28 @@ def plot_fairness_results(sorted_all_results, args_concurrency, total_time, file
     plt.show()
 
 
-def plot_client_metric(ax, sorted_all_results, short_clients, long_clients, warm_colors, cool_colors, metric_key, title,
+def plot_client_metric(ax, sorted_all_results, short_clients, long_clients, mix_clients, warm_colors, cool_colors, mix_colors, metric_key, title,
                        legend_handles, legend_labels, ylim=None):
     plotted_value_sets = []
     """绘制客户端指标"""
+    
+    # 初始化默认的time_xLabel，以防没有任何客户端
+    time_xLabel = ["No Data"]
+    
+    # 获取所有客户端
+    all_clients = short_clients + long_clients + mix_clients
+    
+    # 如果没有任何客户端，显示空图表
+    if not all_clients:
+        ax.text(0.5, 0.5, 'No Client Data Available', 
+                horizontalalignment='center', verticalalignment='center',
+                transform=ax.transAxes, fontsize=12)
+        ax.set_title(title, fontsize=14, fontweight='bold')
+        ax.set_xlabel('Time', fontsize=12)
+        ax.set_ylabel(title, fontsize=12)
+        ax.grid(True, alpha=0.3)
+        return
+    
     # 先绘制short clients，使用实线
     for i, client in enumerate(short_clients):
         client_results = next(
@@ -376,9 +401,43 @@ def plot_client_metric(ax, sorted_all_results, short_clients, long_clients, warm
             legend_handles.append(line)
             legend_labels.append(client)
 
+    # 再绘制mix clients，使用点线
+    for i, client in enumerate(mix_clients):
+        client_results = next(
+            r for r in sorted_all_results if f'{r[0]["client_index"]}_slo_{r[0]["latency_slo"]}' == client)
+        time = [result['time'] for result in client_results]
+        time_xLabel = xLabel_time(time)
+
+        if metric_key == "success_rate":
+            values = [result['successful_requests'] * 100 / result['total_requests'] for result in client_results]
+        elif metric_key in ["tokens_per_second", "latency", "time_to_first_token"]:
+            values = [result[metric_key]["p99"] for result in client_results]
+        elif metric_key == "service":
+            values = [result['total_input_tokens'] + result['total_output_tokens'] * 2 for result in client_results]
+        else:
+            values = [result[metric_key] for result in client_results]
+
+        # 检查是否有相同长度和相同值的数组，避免形状不匹配的错误
+        is_duplicate = any(len(values) == len(prev) and np.allclose(values, prev, atol=1e-4) for prev in plotted_value_sets)
+        if is_duplicate:
+            x_vals = [j + 0.02 for j in range(len(time))]  # 偏移一点
+        else:
+            x_vals = list(range(len(time)))
+
+        # 使用不同的marker和linestyle来区分不同的线条
+        line = ax.plot(x_vals, values, marker=markers[(i + len(short_clients) + len(long_clients)) % len(markers)],
+                       color=mix_colors[i % len(mix_colors)], linestyle=':',
+                       label=client, alpha=0.7, markersize=8)[0]
+
+        plotted_value_sets.append(values)
+
+        if client not in legend_labels:
+            legend_handles.append(line)
+            legend_labels.append(client)
+
     # 计算所有值以确定合适的y轴范围
     all_values = []
-    for client in short_clients + long_clients:
+    for client in all_clients:
         try:
             client_results = next(
                 r for r in sorted_all_results if f'{r[0]["client_index"]}_slo_{r[0]["latency_slo"]}' == client)
@@ -599,22 +658,26 @@ def plot_result(plot_data):
         fairness_results = []
 
     if len(all_results) >= 1:
-        # Group results by short/long and sort by client_index
+        # Group results by short/long/mix and sort by client_index
         short_results = []
         long_results = []
+        mix_results = []
 
         for result in all_results:
             if "short" in result[0]["client_index"]:
                 short_results.append(result)
-            else:
+            elif "long" in result[0]["client_index"]:
                 long_results.append(result)
+            elif "mix" in result[0]["client_index"]:
+                mix_results.append(result)
 
         # Sort results by client_index
         short_results.sort(key=lambda x: x[0]["client_index"])
         long_results.sort(key=lambda x: x[0]["client_index"])
+        mix_results.sort(key=lambda x: x[0]["client_index"])
 
-        # Combine sorted results with short first, then long
-        sorted_all_results = short_results + long_results
+        # Combine sorted results with short first, then long, then mix
+        sorted_all_results = short_results + long_results + mix_results
 
         qps_with_time = plot_averaged_results(short_results, long_results, plot_data["concurrency"],
                                               plot_data["total_time"], plot_data["filename"],

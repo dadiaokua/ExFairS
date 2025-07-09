@@ -22,7 +22,7 @@ class QueueStrategy(Enum):
 
 
 @dataclass
-class  QueuedRequest:
+class QueuedRequest:
     """队列中的请求对象"""
     start_time: float
     client_id: str
@@ -33,14 +33,14 @@ class  QueuedRequest:
     submit_time: float = 0
     client_type: str = "unknown"  # short or long
     request_id: str = ""  # 添加request_id字段
-    
+
     def __post_init__(self):
         if self.submit_time == 0:
             self.submit_time = time.time()
         # 如果没有request_id，生成一个
         if not self.request_id:
             self.request_id = f"request_{self.client_id}_{self.worker_id}_{int(time.time() * 1000)}"
-    
+
     def __lt__(self, other):
         """用于优先队列排序"""
         return self.priority < other.priority
@@ -48,7 +48,7 @@ class  QueuedRequest:
 
 class RequestQueueManager:
     """请求队列管理器，负责控制所有客户端请求的顺序"""
-    
+
     def __init__(self, strategy: QueueStrategy = QueueStrategy.FIFO, max_queue_size: int = 10000):
         self.strategy = strategy
         self.max_queue_size = max_queue_size
@@ -60,65 +60,65 @@ class RequestQueueManager:
         self.workers_running = False
         self.openai_client = None
         self.logger = self._setup_logger()
-        
+
         # 不同策略的特定数据结构
         self.priority_queue_list = []  # 改为列表，用于部分优先级
         self.priority_queue_lock = asyncio.Lock()  # 添加锁保护优先级队列
         self.round_robin_index = 0  # 轮询索引
         self.client_request_counts: Dict[str, int] = {}  # 每个客户端的请求计数
-        
+
         # 部分优先级配置
         self.priority_insert_multiplier = 1  # 优先级倍数，优先级N可以往前插N*multiplier个位置
         self.max_priority_positions = 100  # 最大优先级插入位置限制
-        
+
         # 优化：维护优先级分布的缓存，避免每次重新计算
         self.priority_distribution_cache = {}  # {priority: count}
-        
+
         # 统计信息
         self.total_requests_processed = 0
         self.start_time = None
-        
+
         # 队列监控配置
         self.queue_monitor_interval = GLOBAL_CONFIG.get("queue_monitor_interval", 5)  # 队列监控间隔（秒）
         self.queue_monitor_task = None  # 队列监控任务
-        
+
     def _setup_logger(self):
         """设置日志记录器"""
         logger = logging.getLogger("RequestQueueManager")
         if not logger.handlers:
             logger.setLevel(logging.INFO)
-            
+
             # 确保log目录存在
             os.makedirs('log', exist_ok=True)
-            
+
             # 使用全局配置中的时间戳
             timestamp = GLOBAL_CONFIG.get("monitor_file_time", "default")
-            
+
             # 创建文件处理器
             fh = logging.FileHandler(filename=f'log/request_queue_manager_{timestamp}.log', encoding="utf-8", mode="a")
             fh.setLevel(logging.DEBUG)
-            
+
             # 创建控制台处理器
             ch = logging.StreamHandler()
             ch.setLevel(logging.INFO)
-            
+
             # 创建格式化器
             formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             ch.setFormatter(formatter)
             fh.setFormatter(formatter)
-            
+
             # 添加处理器到日志记录器
             logger.addHandler(ch)
             logger.addHandler(fh)
-            
+
             # 确保日志不会被父级处理器处理
             logger.propagate = False
         return logger
-    
+
     def set_openai_client(self, client):
         """设置OpenAI客户端"""
         self.openai_client = client
-    
+
     def configure_partial_priority(self, insert_multiplier: int = 3, max_positions: int = 20):
         """配置部分优先级参数
         
@@ -129,14 +129,14 @@ class RequestQueueManager:
         self.priority_insert_multiplier = insert_multiplier
         self.max_priority_positions = max_positions
         self.logger.info(f"Configured partial priority: multiplier={insert_multiplier}, max_positions={max_positions}")
-        
+
     async def register_client(self, client_id: str, client_type: str = "unknown"):
         """注册客户端"""
         # 检查客户端是否已经存在，避免重复注册
         if client_id in self.response_queues:
             self.logger.debug(f"Client {client_id} already registered, skipping")
             return
-            
+
         self.response_queues[client_id] = asyncio.Queue()
         self.client_stats[client_id] = {
             'total_requests': 0,
@@ -152,38 +152,38 @@ class RequestQueueManager:
             'actual_tokens_used': 0
         }
         self.logger.info(f"Registered client: {client_id} (type: {client_type})")
-    
+
     async def _monitor_queue_status(self):
         """队列状态监控协程"""
         self.logger.info(f"[queue manager 队列监控] 监控已启动，间隔: {self.queue_monitor_interval}s")
-        
+
         # 准备监控日志文件
         os.makedirs('tmp_result', exist_ok=True)
         timestamp = GLOBAL_CONFIG.get("monitor_file_time", datetime.now().strftime("%m_%d_%H_%M"))
         monitor_file = f'tmp_result/queue_monitor_{timestamp}.json'
-        
+
         monitor_data = {
             'start_time': datetime.now().isoformat(),
             'monitor_interval': self.queue_monitor_interval,
             'strategy': self.strategy.value,
             'snapshots': []
         }
-        
+
         while self.workers_running:
             try:
                 # 获取队列状态
                 normal_queue_size = self.request_queue.qsize()
-                
+
                 # 创建优先级队列的快照（只读操作，无需加锁）
                 priority_queue_snapshot = self.priority_queue_list.copy()
                 priority_queue_size = len(priority_queue_snapshot)
-                
+
                 # 统计不同优先级的请求数量
                 priority_counts = {}
                 for request in priority_queue_snapshot:
                     priority = request.priority
                     priority_counts[priority] = priority_counts.get(priority, 0) + 1
-                
+
                 # 按客户端分组统计队列中的请求
                 client_queue_stats = {}
                 for request in priority_queue_snapshot:
@@ -194,13 +194,13 @@ class RequestQueueManager:
                             'priority_distribution': {},
                             'requests': []
                         }
-                    
+
                     client_queue_stats[client_id]['total_in_queue'] += 1
                     priority = request.priority
                     if priority not in client_queue_stats[client_id]['priority_distribution']:
                         client_queue_stats[client_id]['priority_distribution'][priority] = 0
                     client_queue_stats[client_id]['priority_distribution'][priority] += 1
-                    
+
                     # 记录请求详情
                     wait_time = time.time() - request.submit_time
                     client_queue_stats[client_id]['requests'].append({
@@ -210,17 +210,18 @@ class RequestQueueManager:
                         'submit_time': request.submit_time,
                         'client_type': getattr(request, 'client_type', 'unknown')
                     })
-                
+
                 # 统计客户端处理情况
                 client_processing_stats = {}
                 for client_id, stats in self.client_stats.items():
                     pending_requests = stats['total_requests'] - stats['completed_requests'] - stats['failed_requests']
                     avg_wait_time = stats['total_wait_time'] / max(stats['completed_requests'], 1)
-                    success_rate = stats['completed_requests'] / max(stats['total_requests'], 1) * 100 if stats['total_requests'] > 0 else 0
-                    
+                    success_rate = stats['completed_requests'] / max(stats['total_requests'], 1) * 100 if stats[
+                                                                                                              'total_requests'] > 0 else 0
+
                     # 获取token统计
                     token_stats = self.client_token_stats.get(client_id, {})
-                    
+
                     client_processing_stats[client_id] = {
                         'client_type': stats['client_type'],
                         'total_requests': stats['total_requests'],
@@ -233,10 +234,10 @@ class RequestQueueManager:
                         'total_output_tokens': token_stats.get('total_output_tokens', 0),
                         'actual_tokens_used': token_stats.get('actual_tokens_used', 0)
                     }
-                
+
                 # 计算总的待处理请求数
                 total_pending = normal_queue_size + priority_queue_size
-                
+
                 # 创建监控快照
                 snapshot = {
                     'timestamp': datetime.now().isoformat(),
@@ -249,57 +250,59 @@ class RequestQueueManager:
                     'client_queue_stats': client_queue_stats,
                     'client_processing_stats': client_processing_stats
                 }
-                
+
                 monitor_data['snapshots'].append(snapshot)
-                
+
                 # 保存到文件
                 with open(monitor_file, 'w', encoding='utf-8') as f:
                     json.dump(monitor_data, f, indent=2, ensure_ascii=False)
-                
+
                 # 打印简要日志到控制台
                 priority_info = ""
                 if priority_counts:
                     priority_info = f", 优先级分布: {dict(sorted(priority_counts.items()))}"
-                
-                self.logger.info(f"[queue manager 队列监控] 总待处理: {total_pending} (普通队列: {normal_queue_size}, 优先级队列: {priority_queue_size}{priority_info})")
-                
+
+                if normal_queue_size > 100 or priority_queue_size > 100:
+                    self.logger.info(
+                        f"[queue manager 队列监控] 总待处理: {total_pending} (普通队列: {normal_queue_size}, 优先级队列: {priority_queue_size}{priority_info})")
+
                 # 打印客户端摘要
                 if client_queue_stats:
                     for client_id, queue_stats in client_queue_stats.items():
                         processing_stats = client_processing_stats.get(client_id, {})
                         self.logger.info(f"  客户端 {client_id}: 队列中 {queue_stats['total_in_queue']} 个请求, "
-                                       f"已处理 {processing_stats.get('completed_requests', 0)}/{processing_stats.get('total_requests', 0)}, "
-                                       f"成功率 {processing_stats.get('success_rate', 0):.1f}%")
-                
+                                         f"已处理 {processing_stats.get('completed_requests', 0)}/{processing_stats.get('total_requests', 0)}, "
+                                         f"成功率 {processing_stats.get('success_rate', 0):.1f}%")
+
             except Exception as e:
                 self.logger.error(f"[queue manager 队列监控] 监控过程中出现错误: {e}")
-            
+
             # 等待下一次监控
             await asyncio.sleep(self.queue_monitor_interval)
-        
+
         # 保存最终统计
         monitor_data['end_time'] = datetime.now().isoformat()
         monitor_data['total_snapshots'] = len(monitor_data['snapshots'])
-        
+
         try:
             with open(monitor_file, 'w', encoding='utf-8') as f:
                 json.dump(monitor_data, f, indent=2, ensure_ascii=False)
             self.logger.info(f"[queue manager 队列监控] 监控数据已保存到: {monitor_file}")
         except Exception as e:
             self.logger.error(f"[queue manager 队列监控] 保存监控数据失败: {e}")
-        
+
         self.logger.info("[queue manager 队列监控] 监控已停止")
-    
-    async def submit_request(self, start_time: float, client_id: str, worker_id: str, request_content: str, 
-                           experiment: Any, priority: int = 0, request_id: str = None) -> str:
+
+    async def submit_request(self, start_time: float, client_id: str, worker_id: str, request_content: str,
+                             experiment: Any, priority: int = 0, request_id: str = None) -> str:
         """提交请求到队列"""
         if client_id not in self.response_queues:
             await self.register_client(client_id)
-        
+
         # 如果没有提供request_id，生成一个
         if request_id is None:
             request_id = f"request_{client_id}_{worker_id}_{int(time.time() * 1000)}"
-        
+
         request = QueuedRequest(
             start_time=start_time,
             client_id=client_id,
@@ -310,11 +313,11 @@ class RequestQueueManager:
             client_type=self.client_stats[client_id]['client_type'],
             request_id=request_id  # 传递request_id
         )
-        
+
         # 更新客户端统计
         self.client_stats[client_id]['total_requests'] += 1
         self.client_request_counts[client_id] += 1
-        
+
         try:
             if self.strategy == QueueStrategy.PRIORITY:
                 # 部分优先级策略：根据优先级在整个缓存中的排名位置来决定插入策略
@@ -327,12 +330,12 @@ class RequestQueueManager:
                     else:
                         # 获取所有优先级并排序（数值越小优先级越高）
                         all_priorities = sorted(self.priority_distribution_cache.keys())
-                        
+
                         # 计算当前请求的优先级排名
                         # 找到比当前优先级更高（数值更小）的优先级数量
                         higher_priority_count = len([p for p in all_priorities if p < request.priority])
                         total_priority_levels = len(all_priorities)
-                        
+
                         # 计算优先级排名比例（0表示最高优先级，1表示最低优先级）
                         if request.priority in all_priorities:
                             # 如果当前优先级已存在，使用现有排名
@@ -340,22 +343,22 @@ class RequestQueueManager:
                         else:
                             # 如果是新的优先级，计算插入后的排名
                             priority_rank_ratio = higher_priority_count / (total_priority_levels + 1)
-                        
+
                         # 计算可以超越的请求数量（比当前优先级低的所有请求）
                         can_overtake_count = 0
                         for existing_priority, count in self.priority_distribution_cache.items():
                             if existing_priority > request.priority:
                                 can_overtake_count += count
-                        
+
                         # 根据优先级排名比例计算可以往前插入的位置数
                         if can_overtake_count > 0:
                             # 优先级排名越高（ratio越小），可以往前插入的比例越大
                             # 使用反比例：(1 - priority_rank_ratio) 表示优先级优势
                             priority_advantage = 1 - priority_rank_ratio
-                            
+
                             # 计算基础前进位置数
                             base_forward_positions = int(can_overtake_count * priority_advantage)
-                            
+
                             # 应用倍数和限制
                             max_forward_positions = min(
                                 base_forward_positions * self.priority_insert_multiplier,
@@ -365,54 +368,55 @@ class RequestQueueManager:
                             )
                         else:
                             max_forward_positions = 0
-                        
+
                         # 计算实际插入位置：从末尾往前数 max_forward_positions 个位置
                         insert_pos = max(0, len(self.priority_queue_list) - max_forward_positions)
-                        
+
                         self.logger.debug(f"优先级请求 {request.request_id} (priority={request.priority}): "
-                                        f"排名比例={priority_rank_ratio:.3f}, 可超越={can_overtake_count}, "
-                                        f"前进位置={max_forward_positions}, 插入位置={insert_pos}")
-                    
+                                          f"排名比例={priority_rank_ratio:.3f}, 可超越={can_overtake_count}, "
+                                          f"前进位置={max_forward_positions}, 插入位置={insert_pos}")
+
                     # 执行插入操作
                     self.priority_queue_list.insert(insert_pos, request)
-                    
+
                     # 更新优先级分布缓存（增量更新）
-                    self.priority_distribution_cache[request.priority] = self.priority_distribution_cache.get(request.priority, 0) + 1
-                    
+                    self.priority_distribution_cache[request.priority] = self.priority_distribution_cache.get(
+                        request.priority, 0) + 1
+
                     # 记录插入统计
                     if insert_pos < len(self.priority_queue_list):
                         jumped_positions = len(self.priority_queue_list) - insert_pos
                         self.logger.info(f"请求 {request.request_id} (priority={request.priority}) "
-                                       f"在队列中前进了 {jumped_positions} 个位置")
+                                         f"在队列中前进了 {jumped_positions} 个位置")
                     else:
                         self.logger.debug(f"请求 {request.request_id} (priority={request.priority}) "
-                                        f"插入到队列末尾")
+                                          f"插入到队列末尾")
             else:
                 # 其他策略使用普通队列
                 await self.request_queue.put(request)
                 self.logger.debug(f"Submitted request from {client_id} to queue (request_id: {request_id})")
-            
+
             return request_id  # 返回传入的或生成的request_id
         except asyncio.QueueFull:
             self.logger.error(f"Queue is full, rejecting request from {client_id}")
             self.client_stats[client_id]['failed_requests'] += 1
             raise Exception("Request queue is full")
-    
+
     async def get_response(self, client_id: str, timeout: float = 30.0) -> Optional[Any]:
         """获取客户端的响应"""
         if client_id not in self.response_queues:
             return None
-        
+
         try:
             response = await asyncio.wait_for(
-                self.response_queues[client_id].get(), 
+                self.response_queues[client_id].get(),
                 timeout=timeout
             )
             return response
         except asyncio.TimeoutError:
             self.logger.warning(f"Response timeout for client {client_id}")
             return None
-    
+
     async def _get_next_request(self) -> Optional[QueuedRequest]:
         """根据策略获取下一个请求"""
         if self.strategy == QueueStrategy.FIFO:
@@ -429,29 +433,29 @@ class RequestQueueManager:
             return await self._get_vtc_request()
         else:
             return await self._get_fifo_request()
-    
+
     async def _get_fifo_request(self) -> Optional[QueuedRequest]:
         """FIFO策略"""
         try:
             return await asyncio.wait_for(self.request_queue.get(), timeout=1.0)
         except asyncio.TimeoutError:
             return None
-    
+
     async def _get_priority_request(self) -> Optional[QueuedRequest]:
         """部分优先级策略：从列表头部取出请求"""
         async with self.priority_queue_lock:
             if self.priority_queue_list:
                 request = self.priority_queue_list.pop(0)  # 从头部取出（FIFO基础上的部分优先级）
-                
+
                 # 更新优先级分布缓存（减量更新）
                 if request.priority in self.priority_distribution_cache:
                     self.priority_distribution_cache[request.priority] -= 1
                     if self.priority_distribution_cache[request.priority] <= 0:
                         del self.priority_distribution_cache[request.priority]
-                
+
                 return request
             return None
-    
+
     async def _get_round_robin_request(self) -> Optional[QueuedRequest]:
         """轮询策略"""
         # 简化的轮询实现，实际使用时可以更复杂
@@ -459,7 +463,7 @@ class RequestQueueManager:
             return await asyncio.wait_for(self.request_queue.get(), timeout=1.0)
         except asyncio.TimeoutError:
             return None
-    
+
     async def _get_sjf_request(self) -> Optional[QueuedRequest]:
         """最短作业优先策略"""
         # 需要收集一些请求后按estimated_tokens排序
@@ -468,7 +472,7 @@ class RequestQueueManager:
             return await asyncio.wait_for(self.request_queue.get(), timeout=1.0)
         except asyncio.TimeoutError:
             return None
-    
+
     async def _get_fair_share_request(self) -> Optional[QueuedRequest]:
         """公平共享策略"""
         # 简化实现：优先处理请求数较少的客户端
@@ -476,66 +480,67 @@ class RequestQueueManager:
             return await asyncio.wait_for(self.request_queue.get(), timeout=1.0)
         except asyncio.TimeoutError:
             return None
-    
+
     async def _get_vtc_request(self) -> Optional[QueuedRequest]:
         """VTC策略：选择actual_tokens_used最小的客户端的最早请求"""
         if self.request_queue.qsize() == 0:
             return None
-        
+
         # 收集所有请求
         all_requests = []
         temp_queue_size = self.request_queue.qsize()
-        
+
         for _ in range(temp_queue_size):
             try:
                 request = await asyncio.wait_for(self.request_queue.get(), timeout=0.1)
                 all_requests.append(request)
             except asyncio.TimeoutError:
                 break
-        
+
         if not all_requests:
             return None
-        
+
         # 找到tokens最少的请求
         min_tokens_request = None
         min_tokens = float('inf')
         min_submit_time = float('inf')
-        
+
         for request in all_requests:
             client_tokens = self.client_token_stats.get(request.client_id, {}).get('actual_tokens_used', 0)
-            
+
             # 优先选择tokens最少的，如果tokens相同则选择提交时间最早的
-            if (client_tokens < min_tokens or 
-                (client_tokens == min_tokens and request.submit_time < min_submit_time)):
+            if (client_tokens < min_tokens or
+                    (client_tokens == min_tokens and request.submit_time < min_submit_time)):
                 min_tokens = client_tokens
                 min_submit_time = request.submit_time
                 min_tokens_request = request
-        
+
         # 把除了选中请求外的其他请求放回队列
         for request in all_requests:
             if request != min_tokens_request:
                 await self.request_queue.put(request)
-        
+
         if min_tokens_request:
             self.logger.debug(f"VTC selected request from {min_tokens_request.client_id} (tokens: {min_tokens})")
-        
+
         return min_tokens_request
-    
+
     async def _process_request(self, request: QueuedRequest, worker_name) -> Any:
         """处理单个请求"""
         self.logger.debug(f"Worker {worker_name}: Starting to process request {request.request_id}")
-        
+
         if not self.openai_client:
             self.logger.error("OpenAI client not set")
             return None
         else:
             selected_client = self.openai_client[int(worker_name.split('-')[1]) % len(self.openai_client)]
-            self.logger.debug(f"Worker {worker_name}: Selected client {type(selected_client)} for request {request.request_id}")
-        
+            self.logger.debug(
+                f"Worker {worker_name}: Selected client {type(selected_client)} for request {request.request_id}")
+
         wait_time = time.time() - request.submit_time
         self.client_stats[request.client_id]['total_wait_time'] += wait_time
         self.logger.debug(f"Worker {worker_name}: Request {request.request_id} waited {wait_time:.3f} seconds")
-        
+
         try:
             self.logger.debug(f"Worker {worker_name}: Calling make_request for {request.request_id}")
             # 调用原有的make_request函数，传递request_id
@@ -547,65 +552,66 @@ class RequestQueueManager:
                 request_id=request.request_id,  # 传递request_id
                 priority=request.priority
             )
-            
+
             if result is None:
                 self.client_stats[request.client_id]['failed_requests'] += 1
                 self.logger.warning(f"Request failed: {request.request_id}")
                 return None
-                
+
             self.client_stats[request.client_id]['completed_requests'] += 1
             self.total_requests_processed += 1
             self.logger.debug(f"Request completed successfully: {request.request_id}")
-            
+
             try:
                 # 从result中提取token信息并更新统计
                 # result格式: (output_tokens, elapsed_time, tokens_per_second, ttft, input_token_count, slo_compliance)
                 if isinstance(result, (tuple, list)) and len(result) >= 6:  # 确保有6个返回值
                     output_tokens = int(result[0])
                     input_token_count = int(result[4])
-                    
+
                     self.client_token_stats[request.client_id]['total_output_tokens'] += output_tokens
                     self.client_token_stats[request.client_id]['total_input_tokens'] += input_token_count
-                    self.client_token_stats[request.client_id]['actual_tokens_used'] += (output_tokens + input_token_count)
+                    self.client_token_stats[request.client_id]['actual_tokens_used'] += (
+                                output_tokens + input_token_count)
             except (ValueError, TypeError, IndexError) as e:
                 self.logger.error(f"Error processing result data for {request.request_id}: {str(e)}, result: {result}")
-            
+
             return result
         except Exception as e:
             self.logger.error(f"Error processing request {request.request_id} from {request.client_id}: {str(e)}")
             self.client_stats[request.client_id]['failed_requests'] += 1
             return None
-    
+
     async def start_processing(self, num_workers: int = 5):
         """启动请求处理"""
         if self.is_running:
             self.logger.warning("Queue manager is already running")
             return
-        
+
         self.is_running = True
         self.workers_running = True
         self.start_time = time.time()
-        
+
         self.logger.info(f"Starting request queue manager with {num_workers} workers")
         self.logger.info(f"Strategy: {self.strategy}, OpenAI client set: {self.openai_client is not None}")
-        
+
         if self.openai_client is None:
             self.logger.error("CRITICAL: OpenAI client is not set! Workers will not be able to process requests.")
         else:
             self.logger.info(f"OpenAI client configured with {len(self.openai_client)} clients")
-        
+
         # 创建工作协程
         workers = [
             asyncio.create_task(self._worker(f"worker-{i}"))
             for i in range(num_workers)
         ]
-        
+
         self.logger.info(f"Created {len(workers)} worker tasks")
-        
+
         # 启动队列监控协程
         self.queue_monitor_task = asyncio.create_task(self._monitor_queue_status())
         self.logger.info("Started queue monitoring task")
-        
+
         try:
             # 持续运行直到被明确停止
             # 使用一个无限循环来保持队列管理器运行
@@ -615,34 +621,34 @@ class RequestQueueManager:
                     if worker.done():
                         self.logger.warning(f"Worker worker-{i} stopped unexpectedly, restarting...")
                         workers[i] = asyncio.create_task(self._worker(f"worker-{i}"))
-                
+
                 # 短暂等待后再次检查
                 await asyncio.sleep(1.0)
-                
+
         except Exception as e:
             self.logger.error(f"Error in queue processing: {e}")
         finally:
             # 只有在明确停止时才设置为False
             if not self.workers_running:
                 self.is_running = False
-                
+
                 # 取消所有worker
                 for worker in workers:
                     if not worker.done():
                         worker.cancel()
-                
+
                 # 等待所有worker完成取消
                 await asyncio.gather(*workers, return_exceptions=True)
-                
+
                 self.logger.info("Queue manager processing stopped")
-    
+
     async def _worker(self, worker_name: str):
         """工作协程 - 异步模式：快速提交请求，不等待完成"""
         self.logger.info(f"Worker {worker_name} started (async mode)")
-        
+
         consecutive_empty_cycles = 0
         max_empty_cycles = 600  # 60秒无请求后记录警告，但不退出
-        
+
         while self.workers_running:
             try:
                 self.logger.debug(f"Worker {worker_name}: Attempting to get next request...")
@@ -650,50 +656,52 @@ class RequestQueueManager:
                 if request is None:
                     consecutive_empty_cycles += 1
                     if consecutive_empty_cycles == max_empty_cycles:
-                        self.logger.warning(f"Worker {worker_name}: No requests for {max_empty_cycles * 0.1:.1f} seconds")
+                        self.logger.warning(
+                            f"Worker {worker_name}: No requests for {max_empty_cycles * 0.1:.1f} seconds")
                         consecutive_empty_cycles = 0  # 重置计数器
-                    
+
                     self.logger.debug(f"Worker {worker_name}: No request available, sleeping...")
                     await asyncio.sleep(0.1)  # 没有请求时短暂休眠
                     continue
-                
+
                 # 重置空循环计数器
                 consecutive_empty_cycles = 0
-                
+
                 if not isinstance(request, QueuedRequest):
                     self.logger.error(f"Worker {worker_name}: Invalid request type: {type(request)}")
                     continue
-                
-                self.logger.debug(f"Worker {worker_name}: Submitting request {request.request_id} from client {request.client_id}")
-                
+
+                self.logger.debug(
+                    f"Worker {worker_name}: Submitting request {request.request_id} from client {request.client_id}")
+
                 # 异步提交请求（不等待完成）
                 asyncio.create_task(
                     self._process_request_async(request, worker_name)
                 )
-                
+
                 # 立即继续处理下一个请求，不等待当前请求完成
-                
+
             except Exception as e:
                 self.logger.error(f"Worker {worker_name} error: {str(e)}")
                 await asyncio.sleep(1.0)
-        
+
         self.logger.info(f"Worker {worker_name} stopped")
 
     async def _process_request_async(self, request: QueuedRequest, worker_name: str):
         """异步处理单个请求"""
         try:
             self.logger.debug(f"Worker {worker_name}: Starting async processing for {request.request_id}")
-            
+
             # 处理请求
             result = await self._process_request(request, worker_name)
-            
+
             # 将结果发送到客户端的响应队列
             if request.client_id in self.response_queues:
                 await self.response_queues[request.client_id].put(result)
                 self.logger.debug(f"Worker {worker_name}: Result sent to response queue for {request.client_id}")
             else:
                 self.logger.warning(f"Worker {worker_name}: No response queue found for client {request.client_id}")
-                
+
         except Exception as e:
             self.logger.error(f"Error in async processing for {request.request_id}: {str(e)}")
             # 发送None作为错误结果
@@ -702,13 +710,13 @@ class RequestQueueManager:
                     await self.response_queues[request.client_id].put(None)
                 except Exception:
                     pass
-    
+
     async def stop(self):
         """停止队列管理器"""
         self.logger.info("Stopping request queue manager")
         self.workers_running = False
         self.is_running = False
-        
+
         # 停止队列监控协程
         if self.queue_monitor_task and not self.queue_monitor_task.done():
             self.queue_monitor_task.cancel()
@@ -717,14 +725,14 @@ class RequestQueueManager:
             except asyncio.CancelledError:
                 pass
             self.logger.info("Queue monitor task stopped")
-    
+
     def get_statistics(self) -> Dict[str, Any]:
         """获取统计信息"""
         total_time = time.time() - self.start_time if self.start_time else 0
-        
+
         # 创建优先级队列的快照以避免竞争条件
         priority_queue_size = len(self.priority_queue_list)
-        
+
         stats = {
             'total_requests_processed': self.total_requests_processed,
             'total_time': total_time,
@@ -734,9 +742,9 @@ class RequestQueueManager:
             'client_stats': self.client_stats.copy(),
             'client_token_stats': self.client_token_stats.copy()
         }
-        
+
         return stats
-    
+
     def print_statistics(self):
         """打印统计信息"""
         stats = self.get_statistics()
@@ -744,29 +752,30 @@ class RequestQueueManager:
         self.logger.info(f"Total requests processed: {stats['total_requests_processed']}")
         self.logger.info(f"Requests per second: {stats['requests_per_second']:.2f}")
         self.logger.info(f"Current queue size: {stats['queue_size']}")
-        
+
         for client_id, client_stats in stats['client_stats'].items():
             avg_wait = client_stats['total_wait_time'] / max(client_stats['completed_requests'], 1)
             success_rate = client_stats['completed_requests'] / max(client_stats['total_requests'], 1) * 100
-            
+
             # 获取token统计信息
             token_stats = stats['client_token_stats'].get(client_id, {})
             total_input = token_stats.get('total_input_tokens', 0)
             total_output = token_stats.get('total_output_tokens', 0)
             actual_used = token_stats.get('actual_tokens_used', 0)
-            
-            self.logger.info(f"Client {client_id}: {client_stats['completed_requests']}/{client_stats['total_requests']} "
-                           f"(success: {success_rate:.1f}%, avg_wait: {avg_wait:.3f}s)")
+
+            self.logger.info(
+                f"Client {client_id}: {client_stats['completed_requests']}/{client_stats['total_requests']} "
+                f"(success: {success_rate:.1f}%, avg_wait: {avg_wait:.3f}s)")
             self.logger.info(f"  Tokens - Input: {total_input}, Output: {total_output}, "
-                           f"Total Used: {actual_used}")
-    
+                             f"Total Used: {actual_used}")
+
     async def cleanup(self):
         """清理资源"""
         self.logger.info("Cleaning up queue manager resources")
-        
+
         # 只停止当前实验的workers
         self.workers_running = False
-        
+
         # 清空队列
         queue_cleared_count = 0
         while not self.request_queue.empty():
@@ -775,24 +784,24 @@ class RequestQueueManager:
                 queue_cleared_count += 1
             except asyncio.QueueEmpty:
                 break
-        
+
         # 清空优先级队列（使用锁保护）
         async with self.priority_queue_lock:
             priority_queue_cleared_count = len(self.priority_queue_list)
             self.priority_queue_list.clear()
             # 清空优先级分布缓存
             self.priority_distribution_cache.clear()
-        
+
         # 记录清空的请求数量
         total_cleared = queue_cleared_count + priority_queue_cleared_count
         if total_cleared > 0:
             self.logger.info(f"Cleared {total_cleared} requests during cleanup "
-                           f"(queue: {queue_cleared_count}, priority: {priority_queue_cleared_count})")
-        
+                             f"(queue: {queue_cleared_count}, priority: {priority_queue_cleared_count})")
+
         # 重置统计信息
         self.total_requests_processed = 0
         self.start_time = None
-        
+
         # 重置所有客户端的token统计
         for client_id in self.client_token_stats:
             self.client_token_stats[client_id] = {
@@ -800,7 +809,7 @@ class RequestQueueManager:
                 'total_output_tokens': 0,
                 'actual_tokens_used': 0
             }
-        
+
         self.logger.info("Queue manager cleanup completed")
 
     def get_active_request_ids(self, client_id: str = None) -> List[str]:
@@ -813,7 +822,7 @@ class RequestQueueManager:
             活跃的request_id列表
         """
         active_request_ids = []
-        
+
         # 检查普通队列
         temp_queue = []
         try:
@@ -824,23 +833,23 @@ class RequestQueueManager:
                 temp_queue.append(request)
         except asyncio.QueueEmpty:
             pass
-        
+
         # 将请求放回队列
         for request in temp_queue:
             try:
                 self.request_queue.put_nowait(request)
             except asyncio.QueueFull:
                 self.logger.warning(f"Queue full when restoring request {request.request_id}")
-        
+
         # 检查优先级队列（创建快照以避免竞争条件）
         # 注意：这里可能存在轻微的竞争条件，但对于统计目的是可接受的
         priority_queue_snapshot = self.priority_queue_list.copy()
         for request in priority_queue_snapshot:
             if client_id is None or request.client_id == client_id:
                 active_request_ids.append(request.request_id)
-        
+
         return active_request_ids
-    
+
     async def abort_requests(self, request_ids: List[str]) -> int:
         """终止指定的请求
         
@@ -852,10 +861,10 @@ class RequestQueueManager:
         """
         if not request_ids:
             return 0
-        
+
         aborted_count = 0
         request_ids_set = set(request_ids)
-        
+
         # 从普通队列中移除
         temp_queue = []
         try:
@@ -868,19 +877,19 @@ class RequestQueueManager:
                     self.logger.debug(f"Aborted request from queue: {request.request_id}")
         except asyncio.QueueEmpty:
             pass
-        
+
         # 将未终止的请求放回队列
         for request in temp_queue:
             try:
                 await self.request_queue.put(request)
             except asyncio.QueueFull:
                 self.logger.warning(f"Queue full when restoring request {request.request_id}")
-        
+
         # 从优先级队列中移除（使用锁保护）
         async with self.priority_queue_lock:
             original_priority_queue = self.priority_queue_list.copy()
             self.priority_queue_list = []
-            
+
             for request in original_priority_queue:
                 if request.request_id not in request_ids_set:
                     self.priority_queue_list.append(request)
@@ -892,40 +901,40 @@ class RequestQueueManager:
                         if self.priority_distribution_cache[request.priority] <= 0:
                             del self.priority_distribution_cache[request.priority]
                     self.logger.debug(f"Aborted request from priority queue: {request.request_id}")
-        
+
         if aborted_count > 0:
             self.logger.info(f"Successfully aborted {aborted_count} requests from queue")
-        
+
         return aborted_count
-    
+
     def _validate_priority_cache(self) -> bool:
         """验证优先级分布缓存的一致性（用于调试）"""
         actual_distribution = {}
         for request in self.priority_queue_list:
             priority = request.priority
             actual_distribution[priority] = actual_distribution.get(priority, 0) + 1
-        
+
         # 比较缓存和实际分布
         cache_keys = set(self.priority_distribution_cache.keys())
         actual_keys = set(actual_distribution.keys())
-        
+
         if cache_keys != actual_keys:
             self.logger.warning(f"Priority cache key mismatch: cache={cache_keys}, actual={actual_keys}")
             return False
-        
+
         for priority in cache_keys:
             if self.priority_distribution_cache[priority] != actual_distribution[priority]:
                 self.logger.warning(f"Priority cache count mismatch for {priority}: "
-                                  f"cache={self.priority_distribution_cache[priority]}, "
-                                  f"actual={actual_distribution[priority]}")
+                                    f"cache={self.priority_distribution_cache[priority]}, "
+                                    f"actual={actual_distribution[priority]}")
                 return False
-        
+
         return True
-    
+
     def _rebuild_priority_cache(self):
         """重建优先级分布缓存"""
         self.priority_distribution_cache.clear()
         for request in self.priority_queue_list:
             priority = request.priority
             self.priority_distribution_cache[priority] = self.priority_distribution_cache.get(priority, 0) + 1
-        self.logger.debug(f"Priority cache rebuilt: {self.priority_distribution_cache}") 
+        self.logger.debug(f"Priority cache rebuilt: {self.priority_distribution_cache}")

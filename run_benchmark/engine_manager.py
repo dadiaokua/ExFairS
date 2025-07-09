@@ -113,10 +113,11 @@ async def monitor_engine_queue(engine, interval=5, logger=None):
                         
                         if priority_counts:
                             priority_info = f", 优先级分布: {dict(sorted(priority_counts.items()))}"
-                    
-                    # 打印队列状态
-                    logger.info(f"[vllm engine 队列监控] 等待队列: {waiting_queue_size}, 运行队列: {running_queue_size}, "
-                               f"交换队列: {swapped_queue_size}, 总未完成: {total_unfinished}{priority_info}")                    
+
+                    if waiting_queue_size > 100 or running_queue_size > 100:
+                        # 打印队列状态
+                        logger.info(f"[vllm engine 队列监控] 等待队列: {waiting_queue_size}, 运行队列: {running_queue_size}, "
+                                f"交换队列: {swapped_queue_size}, 总未完成: {total_unfinished}{priority_info}")
                 else:
                     logger.warning(f"[vllm engine 队列监控] 调度器不是list或为空: {type(scheduler_list)}")
                 
