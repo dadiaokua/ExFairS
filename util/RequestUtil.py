@@ -125,12 +125,21 @@ async def make_request_direct_engine(engine, experiment, request, start_time=Non
         elapsed_time = end_time - start_time
         tokens_per_second = output_tokens / elapsed_time if elapsed_time > 0 else 0
 
-        # 检查SLO
-        slo_met = elapsed_time * 1000 <= experiment.latency_slo  # 转换为毫秒
+        # 检查SLO - 统一使用秒进行比较
+        # elapsed_time是秒，latency_slo也是秒
+        slo_met = elapsed_time <= experiment.latency_slo  # 都使用秒为单位
 
-        # 添加完成日志
-        experiment.logger.debug(
-            f"Client {client_id}: 完成请求 {request_id}, 耗时: {elapsed_time:.3f}s, 输出tokens: {output_tokens}")
+        # 添加完成日志和SLO检查日志（采样记录，避免日志过多）
+        # 每100个请求记录一次，或者违反SLO时记录
+        should_log = (not slo_met) or (hash(request_id) % 100 == 0)
+        if should_log:
+            experiment.logger.info(
+                f"Client {client_id}: 请求 {request_id[-8:]} - 耗时: {elapsed_time:.3f}s, "
+                f"SLO阈值: {experiment.latency_slo}s, SLO{'满足' if slo_met else '违反'}")
+        else:
+            experiment.logger.debug(
+                f"Client {client_id}: 完成请求 {request_id}, 耗时: {elapsed_time:.3f}s, "
+                f"SLO: {experiment.latency_slo}s, SLO违反: {not slo_met}")
 
         # 取消注册请求ID
         if hasattr(experiment, 'client') and hasattr(experiment.client, 'unregister_request_id'):
@@ -198,8 +207,12 @@ async def make_request_http_client(client, experiment, request, start_time=None,
         if hasattr(experiment, 'client') and hasattr(experiment.client, 'unregister_request_id'):
             experiment.client.unregister_request_id(request_id)
 
+        # 检查SLO - 统一使用秒进行比较
+        # elapsed_time是秒，latency_slo也是秒
+        slo_met = elapsed_time <= experiment.latency_slo  # 都使用秒为单位
+
         return output_tokens, elapsed_time, tokens_per_second, ttft, len(
-            input_token), 1 if elapsed_time <= experiment.latency_slo else 0
+            input_token), 1 if slo_met else 0
 
     except asyncio.TimeoutError:
         end_time = time.time()

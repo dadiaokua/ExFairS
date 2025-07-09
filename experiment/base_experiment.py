@@ -47,6 +47,10 @@ class BaseExperiment:
         self.qpm = self.config.get('qpm', 1)
         self.config_round = self.config.get('config_round', 1)
         self.latency_slo = self.config.get('latency_slo', 10)
+        
+        # 添加SLO调试日志
+        self.logger.info(f"Client {self.client_id}: Experiment initialized with SLO = {self.latency_slo}s (seconds)")
+        
         self.active_ratio = client.active_ratio
         self.time_ratio = client.time_ratio
         self.max_service = client.max_service
