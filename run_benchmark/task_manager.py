@@ -58,6 +58,7 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
 
     # 创建共享的队列管理器（如果使用队列实验）
     queue_manager = None
+    queue_manager_task = None
     if args.exp.startswith("QUEUE_") and queue_manager_available:
         # 根据实验类型选择队列策略
         strategy_map = {
@@ -72,9 +73,19 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
         queue_manager = RequestQueueManager(strategy=strategy, max_queue_size=20000)
         queue_manager.set_openai_client(openAI_client)
 
-        # 启动队列管理器（在后台运行，不需要保存task引用）
-        asyncio.create_task(queue_manager.start_processing(num_workers=20))
+        # 启动队列管理器（在后台运行）
+        queue_manager_task = asyncio.create_task(queue_manager.start_processing(num_workers=20))
         logger.info(f"Created queue manager with strategy: {strategy.value}")
+        
+        # 等待一小段时间确保队列管理器正常启动
+        await asyncio.sleep(2.0)
+        
+        # 检查队列管理器状态
+        if queue_manager.is_running and queue_manager.workers_running:
+            logger.info(f"✓ Queue manager started successfully: is_running={queue_manager.is_running}, workers_running={queue_manager.workers_running}")
+        else:
+            logger.error(f"❌ Queue manager failed to start properly. is_running: {queue_manager.is_running}, workers_running: {queue_manager.workers_running}")
+            # 即使启动失败也继续，可能在后续使用中恢复
 
     # Create short request clients
     for index in range(args.short_clients):

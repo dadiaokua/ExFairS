@@ -607,30 +607,61 @@ class RequestQueueManager:
         self.logger.info("Started queue monitoring task")
         
         try:
-            # 等待所有工作协程和监控协程
-            await asyncio.gather(*workers, self.queue_monitor_task)
+            # 持续运行直到被明确停止
+            # 使用一个无限循环来保持队列管理器运行
+            while self.workers_running:
+                # 检查worker状态，如果有worker意外停止，重新启动它们
+                for i, worker in enumerate(workers):
+                    if worker.done():
+                        self.logger.warning(f"Worker worker-{i} stopped unexpectedly, restarting...")
+                        workers[i] = asyncio.create_task(self._worker(f"worker-{i}"))
+                
+                # 短暂等待后再次检查
+                await asyncio.sleep(1.0)
+                
         except Exception as e:
             self.logger.error(f"Error in queue processing: {e}")
         finally:
-            self.is_running = False
-            self.workers_running = False
-            self.logger.info("Queue manager processing stopped")
+            # 只有在明确停止时才设置为False
+            if not self.workers_running:
+                self.is_running = False
+                
+                # 取消所有worker
+                for worker in workers:
+                    if not worker.done():
+                        worker.cancel()
+                
+                # 等待所有worker完成取消
+                await asyncio.gather(*workers, return_exceptions=True)
+                
+                self.logger.info("Queue manager processing stopped")
     
     async def _worker(self, worker_name: str):
         """工作协程 - 异步模式：快速提交请求，不等待完成"""
         self.logger.info(f"Worker {worker_name} started (async mode)")
+        
+        consecutive_empty_cycles = 0
+        max_empty_cycles = 600  # 60秒无请求后记录警告，但不退出
         
         while self.workers_running:
             try:
                 self.logger.debug(f"Worker {worker_name}: Attempting to get next request...")
                 request = await self._get_next_request()
                 if request is None:
+                    consecutive_empty_cycles += 1
+                    if consecutive_empty_cycles == max_empty_cycles:
+                        self.logger.warning(f"Worker {worker_name}: No requests for {max_empty_cycles * 0.1:.1f} seconds")
+                        consecutive_empty_cycles = 0  # 重置计数器
+                    
                     self.logger.debug(f"Worker {worker_name}: No request available, sleeping...")
                     await asyncio.sleep(0.1)  # 没有请求时短暂休眠
                     continue
                 
+                # 重置空循环计数器
+                consecutive_empty_cycles = 0
+                
                 if not isinstance(request, QueuedRequest):
-                    self.logger.error(f"Invalid request type: {type(request)}")
+                    self.logger.error(f"Worker {worker_name}: Invalid request type: {type(request)}")
                     continue
                 
                 self.logger.debug(f"Worker {worker_name}: Submitting request {request.request_id} from client {request.client_id}")
