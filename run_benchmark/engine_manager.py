@@ -116,18 +116,7 @@ async def monitor_engine_queue(engine, interval=5, logger=None):
                     
                     # 打印队列状态
                     logger.info(f"[vllm engine 队列监控] 等待队列: {waiting_queue_size}, 运行队列: {running_queue_size}, "
-                               f"交换队列: {swapped_queue_size}, 总未完成: {total_unfinished}{priority_info}")
-                    
-                    # 如果有详细的序列信息，打印前几个请求的详情
-                    if hasattr(scheduler, 'waiting') and scheduler.waiting and waiting_queue_size > 0:
-                        logger.info(f"[vllm engine 队列详情] 等待队列中的前3个请求:")
-                        for i, seq_group in enumerate(scheduler.waiting[:3]):
-                            request_id = getattr(seq_group, 'request_id', f'seq_{i}')
-                            priority = getattr(seq_group, 'priority', 0)
-                            arrival_time = getattr(seq_group, 'arrival_time', 0)
-                            current_time = time.time()
-                            wait_time = current_time - arrival_time if arrival_time > 0 else 0
-                            logger.info(f"  [{i+1}] ID: {request_id}, 优先级: {priority}, 等待时间: {wait_time:.2f}s")
+                               f"交换队列: {swapped_queue_size}, 总未完成: {total_unfinished}{priority_info}")                    
                 else:
                     logger.warning(f"[vllm engine 队列监控] 调度器不是list或为空: {type(scheduler_list)}")
                 
