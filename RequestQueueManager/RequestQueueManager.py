@@ -71,6 +71,9 @@ class RequestQueueManager:
         self.priority_insert_multiplier = 1  # 优先级倍数，优先级N可以往前插N*multiplier个位置
         self.max_priority_positions = 100  # 最大优先级插入位置限制
         
+        # 优化：维护优先级分布的缓存，避免每次重新计算
+        self.priority_distribution_cache = {}  # {priority: count}
+        
         # 统计信息
         self.total_requests_processed = 0
         self.start_time = None
@@ -314,30 +317,76 @@ class RequestQueueManager:
         
         try:
             if self.strategy == QueueStrategy.PRIORITY:
-                # 修改部分优先级策略：数字越小的优先级越高，插入位置越靠前
-                # 注意：负数优先级表示更高的优先级，0表示默认优先级，正数表示较低的优先级
-                # 使用锁保护优先级队列操作
+                # 部分优先级策略：根据优先级在整个缓存中的排名位置来决定插入策略
+                # 数字越小的优先级越高，但不会直接插到所有低优先级请求的前面
+                # 而是根据优先级差值计算允许的前进位置数
                 async with self.priority_queue_lock:
-                    # 确定插入位置
-                    if len(self.priority_queue_list) == 0:
-                        # 队列为空，直接添加
-                        self.priority_queue_list.append(request)
-                        insert_pos = 0
+                    if len(self.priority_distribution_cache) == 0:
+                        # 缓存为空，直接插入到末尾
+                        insert_pos = len(self.priority_queue_list)
                     else:
-                        # 遍历队列找到合适的插入位置
-                        # 找到第一个优先级值大于当前请求的位置
-                        insert_pos = 0
-                        for i, queued_req in enumerate(self.priority_queue_list):
-                            if queued_req.priority > request.priority:
-                                insert_pos = i
-                                break
-                            else:
-                                insert_pos = i + 1  # 如果没找到，插入到末尾
+                        # 获取所有优先级并排序（数值越小优先级越高）
+                        all_priorities = sorted(self.priority_distribution_cache.keys())
                         
-                        # 插入到计算出的位置
-                        self.priority_queue_list.insert(insert_pos, request)
-                
-                self.logger.debug(f"Added request to priority queue: {client_id} (request_id: {request_id}, priority: {priority}, inserted at position: {insert_pos}/{len(self.priority_queue_list)})")
+                        # 计算当前请求的优先级排名
+                        # 找到比当前优先级更高（数值更小）的优先级数量
+                        higher_priority_count = len([p for p in all_priorities if p < request.priority])
+                        total_priority_levels = len(all_priorities)
+                        
+                        # 计算优先级排名比例（0表示最高优先级，1表示最低优先级）
+                        if request.priority in all_priorities:
+                            # 如果当前优先级已存在，使用现有排名
+                            priority_rank_ratio = higher_priority_count / total_priority_levels
+                        else:
+                            # 如果是新的优先级，计算插入后的排名
+                            priority_rank_ratio = higher_priority_count / (total_priority_levels + 1)
+                        
+                        # 计算可以超越的请求数量（比当前优先级低的所有请求）
+                        can_overtake_count = 0
+                        for existing_priority, count in self.priority_distribution_cache.items():
+                            if existing_priority > request.priority:
+                                can_overtake_count += count
+                        
+                        # 根据优先级排名比例计算可以往前插入的位置数
+                        if can_overtake_count > 0:
+                            # 优先级排名越高（ratio越小），可以往前插入的比例越大
+                            # 使用反比例：(1 - priority_rank_ratio) 表示优先级优势
+                            priority_advantage = 1 - priority_rank_ratio
+                            
+                            # 计算基础前进位置数
+                            base_forward_positions = int(can_overtake_count * priority_advantage)
+                            
+                            # 应用倍数和限制
+                            max_forward_positions = min(
+                                base_forward_positions * self.priority_insert_multiplier,
+                                self.max_priority_positions,
+                                can_overtake_count,
+                                len(self.priority_queue_list)
+                            )
+                        else:
+                            max_forward_positions = 0
+                        
+                        # 计算实际插入位置：从末尾往前数 max_forward_positions 个位置
+                        insert_pos = max(0, len(self.priority_queue_list) - max_forward_positions)
+                        
+                        self.logger.debug(f"优先级请求 {request.request_id} (priority={request.priority}): "
+                                        f"排名比例={priority_rank_ratio:.3f}, 可超越={can_overtake_count}, "
+                                        f"前进位置={max_forward_positions}, 插入位置={insert_pos}")
+                    
+                    # 执行插入操作
+                    self.priority_queue_list.insert(insert_pos, request)
+                    
+                    # 更新优先级分布缓存（增量更新）
+                    self.priority_distribution_cache[request.priority] = self.priority_distribution_cache.get(request.priority, 0) + 1
+                    
+                    # 记录插入统计
+                    if insert_pos < len(self.priority_queue_list):
+                        jumped_positions = len(self.priority_queue_list) - insert_pos
+                        self.logger.info(f"请求 {request.request_id} (priority={request.priority}) "
+                                       f"在队列中前进了 {jumped_positions} 个位置")
+                    else:
+                        self.logger.debug(f"请求 {request.request_id} (priority={request.priority}) "
+                                        f"插入到队列末尾")
             else:
                 # 其他策略使用普通队列
                 await self.request_queue.put(request)
@@ -392,7 +441,15 @@ class RequestQueueManager:
         """部分优先级策略：从列表头部取出请求"""
         async with self.priority_queue_lock:
             if self.priority_queue_list:
-                return self.priority_queue_list.pop(0)  # 从头部取出（FIFO基础上的部分优先级）
+                request = self.priority_queue_list.pop(0)  # 从头部取出（FIFO基础上的部分优先级）
+                
+                # 更新优先级分布缓存（减量更新）
+                if request.priority in self.priority_distribution_cache:
+                    self.priority_distribution_cache[request.priority] -= 1
+                    if self.priority_distribution_cache[request.priority] <= 0:
+                        del self.priority_distribution_cache[request.priority]
+                
+                return request
             return None
     
     async def _get_round_robin_request(self) -> Optional[QueuedRequest]:
@@ -692,6 +749,8 @@ class RequestQueueManager:
         async with self.priority_queue_lock:
             priority_queue_cleared_count = len(self.priority_queue_list)
             self.priority_queue_list.clear()
+            # 清空优先级分布缓存
+            self.priority_distribution_cache.clear()
         
         # 记录清空的请求数量
         total_cleared = queue_cleared_count + priority_queue_cleared_count
@@ -796,9 +855,46 @@ class RequestQueueManager:
                     self.priority_queue_list.append(request)
                 else:
                     aborted_count += 1
+                    # 更新优先级分布缓存（减量更新）
+                    if request.priority in self.priority_distribution_cache:
+                        self.priority_distribution_cache[request.priority] -= 1
+                        if self.priority_distribution_cache[request.priority] <= 0:
+                            del self.priority_distribution_cache[request.priority]
                     self.logger.debug(f"Aborted request from priority queue: {request.request_id}")
         
         if aborted_count > 0:
             self.logger.info(f"Successfully aborted {aborted_count} requests from queue")
         
-        return aborted_count 
+        return aborted_count
+    
+    def _validate_priority_cache(self) -> bool:
+        """验证优先级分布缓存的一致性（用于调试）"""
+        actual_distribution = {}
+        for request in self.priority_queue_list:
+            priority = request.priority
+            actual_distribution[priority] = actual_distribution.get(priority, 0) + 1
+        
+        # 比较缓存和实际分布
+        cache_keys = set(self.priority_distribution_cache.keys())
+        actual_keys = set(actual_distribution.keys())
+        
+        if cache_keys != actual_keys:
+            self.logger.warning(f"Priority cache key mismatch: cache={cache_keys}, actual={actual_keys}")
+            return False
+        
+        for priority in cache_keys:
+            if self.priority_distribution_cache[priority] != actual_distribution[priority]:
+                self.logger.warning(f"Priority cache count mismatch for {priority}: "
+                                  f"cache={self.priority_distribution_cache[priority]}, "
+                                  f"actual={actual_distribution[priority]}")
+                return False
+        
+        return True
+    
+    def _rebuild_priority_cache(self):
+        """重建优先级分布缓存"""
+        self.priority_distribution_cache.clear()
+        for request in self.priority_queue_list:
+            priority = request.priority
+            self.priority_distribution_cache[priority] = self.priority_distribution_cache.get(priority, 0) + 1
+        self.logger.debug(f"Priority cache rebuilt: {self.priority_distribution_cache}") 

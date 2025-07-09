@@ -9,6 +9,7 @@ import json
 import logging
 import sys
 import os
+import random
 from transformers import AutoTokenizer
 from argument_parser import safe_float_conversion
 
@@ -48,6 +49,10 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
 
     with open("prompt_hub/long_prompts.json", "r", encoding="utf-8") as f:
         long_formatted_json = json.load(f)
+
+    mix_formatted_json = short_formatted_json + long_formatted_json
+    
+    random.shuffle(mix_formatted_json)
 
     openAI_client = initialize_clients(args.local_port)
 
@@ -135,9 +140,40 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
         )
         clients.append(client)
         tasks.append(client.start())
+        
+    for index in range(args.mix_clients):
+        qpm_value = safe_float_conversion(args.mix_qpm[0] if len(args.mix_qpm) == 1 else args.mix_qpm[index])
+        slo_value = safe_float_conversion(
+            args.mix_clients_slo[0] if len(args.mix_clients_slo) == 1 else args.mix_clients_slo[index], 10)
+        
+        client = BenchmarkClient(
+            client_type='mix',
+            client_index=index,
+            qpm=qpm_value,
+            port=args.local_port,
+            api_key=args.api_key,
+            distribution=args.distribution,
+            request_timeout=args.request_timeout,
+            concurrency=args.concurrency,
+            round_time=args.round_time,
+            sleep=args.sleep,
+            result_queue=all_results,
+            use_time_data=args.use_time_data,
+            formatted_json=mix_formatted_json,
+            OpenAI_client=openAI_client,
+            tokenizer=tokenizer,
+            time_data=None,
+            round=args.round,
+            exp_type=args.exp,
+            qpm_ratio=args.mix_client_qpm_ratio,
+            latency_slo=int(slo_value),
+            queue_manager=queue_manager  # 传递队列管理器
+        )
+        clients.append(client)
+        tasks.append(client.start())
 
     # 创建监控器实例
-    monitor = ExperimentMonitor(clients, all_results, args.short_clients + args.long_clients, args.exp, request_queue,
+    monitor = ExperimentMonitor(clients, all_results, args.short_clients + args.long_clients + args.mix_clients, args.exp, request_queue,
                                 args.use_tunnel)
 
     # 创建监控任务

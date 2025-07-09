@@ -97,12 +97,16 @@ SHORT_QPM="10 10 10 20 20 20"
 SHORT_CLIENT_QPM_RATIO=1
 LONG_QPM="10 10 20 20"
 LONG_CLIENT_QPM_RATIO=1
+MIX_QPM="15 25 30"
+MIX_CLIENT_QPM_RATIO=1
 
 # ========== 客户端配置参数 ==========
 SHORT_CLIENTS=6
 SHORT_CLIENTS_SLO="4 5 6 7 8 9"
 LONG_CLIENTS=4
 LONG_CLIENTS_SLO="6 7 8 9"
+MIX_CLIENTS=3
+MIX_CLIENTS_SLO="5 6 7"
 
 # ========== 并发和性能参数 ==========
 CONCURRENCY=1
@@ -173,12 +177,16 @@ echo "  Short QPM: $SHORT_QPM"
 echo "  Short Client QPM Ratio: $SHORT_CLIENT_QPM_RATIO"
 echo "  Long QPM: $LONG_QPM"
 echo "  Long Client QPM Ratio: $LONG_CLIENT_QPM_RATIO"
+echo "  MIX QPM: $MIX_QPM"
+echo "  MIX Client QPM Ratio: $MIX_CLIENT_QPM_RATIO"
 echo ""
 echo "👥 客户端配置参数:"
 echo "  Short Clients: $SHORT_CLIENTS"
 echo "  Short Clients SLO: $SHORT_CLIENTS_SLO"
 echo "  Long Clients: $LONG_CLIENTS"
 echo "  Long Clients SLO: $LONG_CLIENTS_SLO"
+echo "  MIX Clients: $MIX_CLIENTS"
+echo "  MIX Clients SLO: $MIX_CLIENTS_SLO"
 echo ""
 echo "⚡ 并发和性能参数:"
 echo "  Concurrency: $CONCURRENCY"
@@ -222,10 +230,14 @@ run_benchmark() {
         --short_client_qpm_ratio "$SHORT_CLIENT_QPM_RATIO" \
         --long_qpm "$LONG_QPM" \
         --long_client_qpm_ratio "$LONG_CLIENT_QPM_RATIO" \
+        --mix_qpm "$MIX_QPM" \
+        --mix_client_qpm_ratio "$MIX_CLIENT_QPM_RATIO" \
         --short_clients "$SHORT_CLIENTS" \
         --short_clients_slo "$SHORT_CLIENTS_SLO" \
         --long_clients "$LONG_CLIENTS" \
         --long_clients_slo "$LONG_CLIENTS_SLO" \
+        --mix_clients "$MIX_CLIENTS" \
+        --mix_clients_slo "$MIX_CLIENTS_SLO" \
         --concurrency "$CONCURRENCY" \
         --num_requests "$NUM_REQUESTS" \
         --request_timeout "$REQUEST_TIMEOUT" \
