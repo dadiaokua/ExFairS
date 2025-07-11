@@ -256,7 +256,7 @@ async def start_vllm_engine(args, logger):
             pipeline_parallel_size=getattr(args, 'pipeline_parallel_size', 1),
             gpu_memory_utilization=getattr(args, 'gpu_memory_utilization', 0.9),
             max_model_len=getattr(args, 'max_model_len', 4096),
-            max_num_seqs=getattr(args, 'max_num_seqs', 64),
+            max_num_seqs=getattr(args, 'max_num_seqs', 128),
             disable_log_stats=getattr(args, 'disable_log_stats', True),
             enable_prefix_caching=False,  # 强制禁用前缀缓存
             dtype=getattr(args, 'dtype', 'half'),
