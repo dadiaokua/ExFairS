@@ -256,7 +256,7 @@ class ExperimentMonitor:
     @timing_decorator
     async def _calculate_fairness(self):
         """计算公平性指标"""
-        return await fairness_result(self.clients, self.exp_type)
+        return await fairness_result(self.clients, self.exp_type, self.logger)
 
     @timing_decorator
     async def _adjust_fairness(self):

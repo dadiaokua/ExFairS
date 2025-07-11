@@ -9,7 +9,26 @@ from util.RequestUtil import make_request
 import os
 from config.Config import GLOBAL_CONFIG
 import json
+import uuid  # 添加uuid导入
+import threading  # 添加线程安全支持
 
+
+# 全局计数器，用于生成唯一的请求序列号
+_request_counter = 0
+_counter_lock = threading.Lock()
+
+def generate_unique_request_id(client_id: str, worker_id: str) -> str:
+    """生成唯一的请求ID，避免重复"""
+    global _request_counter
+    with _counter_lock:
+        _request_counter += 1
+        counter = _request_counter
+    
+    # 使用UUID确保全局唯一性，并添加可读的前缀
+    unique_id = str(uuid.uuid4())[:8]  # 取UUID的前8位
+    timestamp = int(time.time() * 1000000)  # 使用微秒时间戳
+    
+    return f"req_{client_id}_{worker_id}_{counter}_{timestamp}_{unique_id}"
 
 class QueueStrategy(Enum):
     """队列调度策略"""
@@ -37,9 +56,9 @@ class QueuedRequest:
     def __post_init__(self):
         if self.submit_time == 0:
             self.submit_time = time.time()
-        # 如果没有request_id，生成一个
+        # 如果没有request_id，生成一个唯一的
         if not self.request_id:
-            self.request_id = f"request_{self.client_id}_{self.worker_id}_{int(time.time() * 1000)}"
+            self.request_id = generate_unique_request_id(self.client_id, self.worker_id)
 
     def __lt__(self, other):
         """用于优先队列排序"""
@@ -81,6 +100,9 @@ class RequestQueueManager:
         # 队列监控配置
         self.queue_monitor_interval = GLOBAL_CONFIG.get("queue_monitor_interval", 5)  # 队列监控间隔（秒）
         self.queue_monitor_task = None  # 队列监控任务
+
+        # 用于跟踪已提交的request_id，避免重复
+        self._submitted_request_ids = set()
 
     def _setup_logger(self):
         """设置日志记录器"""
@@ -299,9 +321,19 @@ class RequestQueueManager:
         if client_id not in self.response_queues:
             await self.register_client(client_id)
 
-        # 如果没有提供request_id，生成一个
+        # 如果没有提供request_id，生成一个唯一的
         if request_id is None:
-            request_id = f"request_{client_id}_{worker_id}_{int(time.time() * 1000)}"
+            request_id = generate_unique_request_id(client_id, worker_id)
+
+        # 验证request_id的唯一性（可选的调试检查）
+        if hasattr(self, '_submitted_request_ids'):
+            if request_id in self._submitted_request_ids:
+                self.logger.error(f"Duplicate request_id detected: {request_id}")
+                # 重新生成一个新的ID
+                request_id = generate_unique_request_id(client_id, worker_id)
+            self._submitted_request_ids.add(request_id)
+        else:
+            self._submitted_request_ids = {request_id}
 
         request = QueuedRequest(
             start_time=start_time,

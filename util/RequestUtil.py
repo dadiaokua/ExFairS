@@ -13,6 +13,27 @@ from vllm import SamplingParams
 from config.Config import GLOBAL_CONFIG
 from util.ThreadSafeUtil import ThreadSafeCounter
 
+# 导入唯一request_id生成函数
+try:
+    from RequestQueueManager.RequestQueueManager import generate_unique_request_id
+except ImportError:
+    # 如果导入失败，提供备用实现
+    _request_counter = 0
+    _counter_lock = threading.Lock()
+    
+    def generate_unique_request_id(client_id: str, worker_id: str) -> str:
+        """生成唯一的请求ID，避免重复"""
+        global _request_counter
+        with _counter_lock:
+            _request_counter += 1
+            counter = _request_counter
+        
+        # 使用UUID确保全局唯一性，并添加可读的前缀
+        unique_id = str(uuid.uuid4())[:8]  # 取UUID的前8位
+        timestamp = int(time.time() * 1000000)  # 使用微秒时间戳
+        
+        return f"req_{client_id}_{worker_id}_{counter}_{timestamp}_{unique_id}"
+
 
 async def process_stream(stream):
     first_token_time = None
@@ -59,10 +80,11 @@ async def make_request_direct_engine(engine, experiment, request, start_time=Non
     if start_time is None:
         start_time = time.time()
 
-    # 如果没有提供request_id，生成一个带客户端前缀的唯一ID
+    # 如果没有提供request_id，生成一个唯一的ID
     if request_id is None:
         client_id = getattr(experiment.client, 'client_id', 'unknown_client')
-        request_id = f"{client_id}_{str(uuid.uuid4())}"
+        worker_id = getattr(experiment, 'worker_id', 'unknown_worker')
+        request_id = generate_unique_request_id(client_id, worker_id)
 
     try:
         # 注册请求ID到实验的客户端（如果可用）
@@ -133,7 +155,7 @@ async def make_request_direct_engine(engine, experiment, request, start_time=Non
         # 每100个请求记录一次，或者违反SLO时记录
         should_log = (not slo_met) or (hash(request_id) % 100 == 0)
         if should_log:
-            experiment.logger.info(
+            experiment.logger.debug(
                 f"Client {client_id}: 请求 {request_id[-8:]} - 耗时: {elapsed_time:.3f}s, "
                 f"SLO阈值: {experiment.latency_slo}s, SLO{'满足' if slo_met else '违反'}")
         else:
@@ -177,9 +199,11 @@ async def make_request_http_client(client, experiment, request, start_time=None,
     if start_time is None:
         start_time = time.time()
 
-    # 如果没有提供request_id，生成一个
+    # 如果没有提供request_id，生成一个唯一的
     if request_id is None:
-        request_id = str(uuid.uuid4())
+        client_id = getattr(experiment.client, 'client_id', 'unknown_client')
+        worker_id = getattr(experiment, 'worker_id', 'unknown_worker')
+        request_id = generate_unique_request_id(client_id, worker_id)
 
     try:
         # 注册请求ID到实验的客户端（如果可用）
@@ -240,9 +264,9 @@ async def make_request_http_client(client, experiment, request, start_time=None,
 async def make_request_via_queue(queue_manager, client_id: str, worker_id: str,
                                  request_content: str, experiment, priority: int = 0, request_id: str = None) -> Any:
     """通过队列管理器发送请求 - 真正异步版本：只提交请求，不等待响应"""
-    # 如果没有提供request_id，生成一个（向后兼容）
+    # 如果没有提供request_id，生成一个唯一的
     if request_id is None:
-        request_id = str(uuid.uuid4())
+        request_id = generate_unique_request_id(client_id, worker_id)
 
     try:
         # 只提交请求到队列，立即返回
@@ -342,7 +366,8 @@ async def worker_with_queue(experiment, queue_manager, semaphore, results, worke
         # 提交请求到队列（不等待响应）
         request = random.choice(worker_json)
         priority = experiment.client.priority
-        request_id = f"{main_client_id}_{str(uuid.uuid4())}"
+        # 使用唯一的request_id生成函数
+        request_id = generate_unique_request_id(main_client_id, f"worker_{worker_id}")
 
         # 直接提交请求，不等待
         try:
@@ -493,9 +518,9 @@ async def worker_with_queue(experiment, queue_manager, semaphore, results, worke
 async def make_request_via_queue_with_response(queue_manager, client_id: str, worker_id: str,
                                                request_content: str, experiment, priority: int = 0, request_id: str = None) -> Any:
     """通过队列管理器发送请求并等待响应 - 用于需要响应的场景"""
-    # 如果没有提供request_id，生成一个（向后兼容）
+    # 如果没有提供request_id，生成一个唯一的
     if request_id is None:
-        request_id = str(uuid.uuid4())
+        request_id = generate_unique_request_id(client_id, worker_id)
 
     try:
         # 提交请求到队列
@@ -753,7 +778,7 @@ async def worker(experiment, selected_clients, semaphore, results, worker_id, wo
         selected_client = selected_clients[worker_id % len(selected_clients)]
 
         # 生成request_id并在创建task时就集成
-        request_id = f"{client_id}_{str(uuid.uuid4())}"
+        request_id = generate_unique_request_id(client_id, f"worker_{worker_id}")
 
         task = asyncio.create_task(
             process_request(selected_client, experiment, request, worker_id, results, semaphore, tokens_counter,
@@ -796,9 +821,10 @@ async def worker(experiment, selected_clients, semaphore, results, worker_id, wo
 
 
 async def process_request(client, experiment, request, worker_id, results, semaphore, tokens_counter, request_id=None):
-    # 如果没有提供request_id，生成一个（向后兼容）
+    # 如果没有提供request_id，生成一个唯一的
     if request_id is None:
-        request_id = str(uuid.uuid4())
+        client_id = getattr(experiment.client, 'client_id', f'unknown_client_worker_{worker_id}')
+        request_id = generate_unique_request_id(client_id, f"worker_{worker_id}")
 
     async with semaphore:
         try:

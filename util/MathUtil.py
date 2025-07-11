@@ -67,10 +67,12 @@ def calculate_service_value(total_input_tokens, total_output_tokens):
     return total_input_tokens + 2 * total_output_tokens
 
 
-async def fairness_result(clients, exp_type):
+async def fairness_result(clients, exp_type, logger):
     # Calculate service values and max service in one pass
     max_service = 0
     service = []
+
+    logger.debug(f"[Fairness Debug] Calculating fairness for {len(clients)} clients")
 
     for client in clients:
         # Get latest results
@@ -81,6 +83,11 @@ async def fairness_result(clients, exp_type):
             latest_result["total_input_tokens"], 
             latest_result["total_output_tokens"]
         )
+
+        logger.debug(f"[Fairness Debug] Client {latest_result['client_index']}: "
+              f"input_tokens={latest_result['total_input_tokens']}, "
+              f"output_tokens={latest_result['total_output_tokens']}, "
+              f"service_value={service_value}")
 
         # Update max service
         max_service = max(max_service, service_value)
@@ -94,13 +101,25 @@ async def fairness_result(clients, exp_type):
         # Update client attributes
         client.service = service_value
 
+    logger.debug(f"[Fairness Debug] Max service calculated: {max_service}")
+
+    # 添加除零保护：如果max_service为0，说明所有客户端都没有处理任何token
+    if max_service == 0:
+        logger.warning(f"[Fairness] Warning: max_service is 0, all clients have zero tokens. Setting equal fairness ratios.")
+        # 如果没有服务值，给所有客户端相等的公平性比例
+        for client in clients:
+            client.fairness_ratio = 1  # 平均分配
+        
+        # 计算Jain's公平性指数
+        tmp_jains_index = calculate_Jains_index(clients, exp_type)
+        return tmp_jains_index, service
+
     # Calculate fairness ratios in one pass
     alpha = GLOBAL_CONFIG['alpha']
     for client in clients:
         slo_violation_ratio = client.slo_violation_count / client.results[-1]['total_requests']
-        service_ratio = client.service / max_service
+        service_ratio = client.service / max_service  # 现在max_service保证不为0
         client.fairness_ratio = service_ratio * (1 - alpha) + alpha * slo_violation_ratio
-
 
     # Calculate Jain's fairness index
     tmp_jains_index = calculate_Jains_index(clients, exp_type)
@@ -182,10 +201,19 @@ def calculate_percentile(values, percentile, reverse=False):
 
 def calculate_metrics(concurrency, request_timeout, client_id, results, start_time, end_time, num_requests, qps,
                       output_tokens, latency_slo, fairness_ratio, drift_time, credit, timeout_count):
+    # 添加调试信息
+    print(f"[Debug] calculate_metrics for {client_id}: {len(results)} results")
+    if len(results) > 0:
+        print(f"[Debug] First few results: {results[:3]}")
+    
     # Calculate metrics
     total_elapsed_time = end_time - start_time
     total_tokens = sum(tokens for tokens, _, _, _, _, _ in results if tokens is not None)
     total_input_tokens = sum(input_token for _, _, _, _, input_token, _ in results if input_token is not None)
+    
+    # 添加token调试信息
+    print(f"[Debug] {client_id}: total_output_tokens={total_tokens}, total_input_tokens={total_input_tokens}")
+    
     latencies = [elapsed_time for _, elapsed_time, _, _, _, _ in results if elapsed_time is not None]
     tokens_per_second_list = [tps for _, _, tps, _, _, _ in results if tps is not None]
     ttft_list = [ttft for _, _, _, ttft, _, _ in results if ttft is not None]
