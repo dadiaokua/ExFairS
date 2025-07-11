@@ -48,7 +48,7 @@ async def process_stream(stream):
     return first_token_time, total_tokens
 
 
-async def make_request(client, experiment, request, start_time=None, request_id=None, priority=None):
+async def make_request(openai, experiment, request, start_time=None, request_id=None, priority=None):
     """
     发送请求 - 自动检测使用直接引擎还是HTTP客户端
     """
@@ -59,7 +59,7 @@ async def make_request(client, experiment, request, start_time=None, request_id=
                                                 request_id, priority)
     else:
         # 使用HTTP客户端（原有方式）
-        return await make_request_http_client(client, experiment, request, start_time, request_id)
+        return await make_request_http_client(openai, experiment, request, start_time, request_id)
 
 
 async def make_request_direct_engine(engine, experiment, request, start_time=None, request_id=None, priority=None):
@@ -97,6 +97,8 @@ async def make_request_direct_engine(engine, experiment, request, start_time=Non
 
         # 准备请求参数
         sampling_params = SamplingParams(
+            n=1,
+            best_of=1,
             temperature=0.8,
             top_p=0.95,
             max_tokens=experiment.output_tokens
@@ -820,7 +822,7 @@ async def worker(experiment, selected_clients, semaphore, results, worker_id, wo
     return completed, drift_time, request_count
 
 
-async def process_request(client, experiment, request, worker_id, results, semaphore, tokens_counter, request_id=None):
+async def process_request(openai, experiment, request, worker_id, results, semaphore, tokens_counter, request_id=None):
     # 如果没有提供request_id，生成一个唯一的
     if request_id is None:
         client_id = getattr(experiment.client, 'client_id', f'unknown_client_worker_{worker_id}')
@@ -833,7 +835,7 @@ async def process_request(client, experiment, request, worker_id, results, semap
                 experiment.logger.info(f"Worker {worker_id} reached max tokens limit ({experiment.max_tokens})")
                 return
 
-            result = await make_request(client, experiment, request, request_id=request_id)
+            result = await make_request(openai, experiment, request, request_id=request_id)
             if result:
                 output_tokens = result[0]  # 第一个元素是output_tokens
                 # 原子性地更新token计数

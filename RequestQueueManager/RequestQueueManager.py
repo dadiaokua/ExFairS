@@ -85,6 +85,9 @@ class RequestQueueManager:
         self.priority_queue_lock = asyncio.Lock()  # 添加锁保护优先级队列
         self.round_robin_index = 0  # 轮询索引
         self.client_request_counts: Dict[str, int] = {}  # 每个客户端的请求计数
+        
+        # 为轮询策略维护每个客户端的队列
+        self.client_queues: Dict[str, asyncio.Queue] = {}  # 每个客户端的请求队列
 
         # 部分优先级配置
         self.priority_insert_multiplier = 1  # 优先级倍数，优先级N可以往前插N*multiplier个位置
@@ -173,7 +176,16 @@ class RequestQueueManager:
             'total_output_tokens': 0,
             'actual_tokens_used': 0
         }
+        
+        # 为轮询策略创建客户端队列
+        if self.strategy == QueueStrategy.ROUND_ROBIN:
+            self.client_queues[client_id] = asyncio.Queue(maxsize=self.max_queue_size // 10)  # 每个客户端队列较小
+        
         self.logger.info(f"Registered client: {client_id} (type: {client_type})")
+        
+        # 如果是轮询策略，更新客户端列表
+        if self.strategy == QueueStrategy.ROUND_ROBIN:
+            self._round_robin_clients = sorted(self.client_stats.keys())
 
     async def _monitor_queue_status(self):
         """队列状态监控协程"""
@@ -423,6 +435,14 @@ class RequestQueueManager:
                     else:
                         self.logger.debug(f"请求 {request.request_id} (priority={request.priority}) "
                                           f"插入到队列末尾")
+            elif self.strategy == QueueStrategy.ROUND_ROBIN:
+                # 轮询策略：将请求放入对应客户端的队列
+                if client_id not in self.client_queues:
+                    # 如果客户端队列不存在，创建一个
+                    self.client_queues[client_id] = asyncio.Queue(maxsize=self.max_queue_size // 10)
+                
+                await self.client_queues[client_id].put(request)
+                self.logger.debug(f"Submitted request from {client_id} to client queue (request_id: {request_id})")
             else:
                 # 其他策略使用普通队列
                 await self.request_queue.put(request)
@@ -489,12 +509,42 @@ class RequestQueueManager:
             return None
 
     async def _get_round_robin_request(self) -> Optional[QueuedRequest]:
-        """轮询策略"""
-        # 简化的轮询实现，实际使用时可以更复杂
-        try:
-            return await asyncio.wait_for(self.request_queue.get(), timeout=1.0)
-        except asyncio.TimeoutError:
+        """轮询策略：轮流处理不同客户端的请求"""
+        if not self.client_queues:
             return None
+
+        # 使用固定的客户端列表（按注册顺序排序）
+        all_clients = sorted(self.client_queues.keys())
+        if not all_clients:
+            return None
+        
+        # 尝试轮询所有客户端，最多尝试一轮
+        attempts = 0
+        max_attempts = len(all_clients)
+        
+        while attempts < max_attempts:
+            # 使用固定客户端列表进行轮询
+            target_client_id = all_clients[self.round_robin_index % len(all_clients)]
+            self.round_robin_index += 1
+            attempts += 1
+            
+            # 检查该客户端是否有请求
+            if target_client_id in self.client_queues and not self.client_queues[target_client_id].empty():
+                try:
+                    request = await asyncio.wait_for(
+                        self.client_queues[target_client_id].get(), 
+                        timeout=0.01
+                    )
+                    self.logger.debug(f"Round-robin selected request from client {target_client_id} "
+                                     f"(client index: {(self.round_robin_index - 1) % len(all_clients)})")
+                    return request
+                except asyncio.TimeoutError:
+                    # 队列在获取时变空，继续下一个客户端
+                    continue
+            # 如果该客户端没有请求，直接跳到下一个客户端（保持轮询顺序）
+        
+        # 所有客户端都没有请求
+        return None
 
     async def _get_sjf_request(self) -> Optional[QueuedRequest]:
         """最短作业优先策略"""
@@ -577,7 +627,7 @@ class RequestQueueManager:
             self.logger.debug(f"Worker {worker_name}: Calling make_request for {request.request_id}")
             # 调用原有的make_request函数，传递request_id
             result = await make_request(
-                client=selected_client,
+                openai=selected_client,
                 experiment=request.experiment,
                 request=request.request_content,
                 start_time=request.start_time,
