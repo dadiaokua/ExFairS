@@ -785,6 +785,22 @@ class RequestQueueManager:
 
         except Exception as e:
             self.logger.error(f"Error in async processing for {request.request_id}: {str(e)}")
+            
+            # 如果是vLLM引擎相关的错误，尝试abort请求
+            if "Waiting sequence group should have only one prompt sequence" in str(e):
+                self.logger.warning(f"Detected vLLM sequence group error for {request.request_id}, attempting abort")
+                try:
+                    # 尝试从vLLM引擎中abort这个请求
+                    if hasattr(self, 'openai_client') and self.openai_client:
+                        # 如果有vLLM引擎访问权限，尝试abort
+                        from config.Config import GLOBAL_CONFIG
+                        vllm_engine = GLOBAL_CONFIG.get('vllm_engine')
+                        if vllm_engine and hasattr(vllm_engine, 'abort_request'):
+                            await vllm_engine.abort_request(request.request_id)
+                            self.logger.debug(f"Successfully aborted problematic request {request.request_id}")
+                except Exception as abort_error:
+                    self.logger.warning(f"Failed to abort problematic request {request.request_id}: {abort_error}")
+            
             # 发送None作为错误结果
             if request.client_id in self.response_queues:
                 try:

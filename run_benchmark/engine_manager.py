@@ -82,6 +82,9 @@ async def monitor_engine_queue(engine, interval=5, logger=None):
     """
     logger.info(f"开始监控引擎队列状态，间隔{interval}秒")
     
+    cleanup_counter = 0
+    cleanup_interval = 12  # 每12次监控执行一次清理（即60秒一次，如果interval=5）
+    
     while True:
         try:
             # 使用正确的scheduler访问方法
@@ -118,6 +121,13 @@ async def monitor_engine_queue(engine, interval=5, logger=None):
                         # 打印队列状态
                         logger.info(f"[vllm engine 队列监控] 等待队列: {waiting_queue_size}, 运行队列: {running_queue_size}, "
                                 f"交换队列: {swapped_queue_size}, 总未完成: {total_unfinished}{priority_info}")
+                    
+                    # 定期清理机制
+                    cleanup_counter += 1
+                    if cleanup_counter >= cleanup_interval:
+                        cleanup_counter = 0
+                        await _cleanup_stale_requests(engine, scheduler, logger)
+                        
                 else:
                     logger.warning(f"[vllm engine 队列监控] 调度器不是list或为空: {type(scheduler_list)}")
                 
@@ -129,6 +139,41 @@ async def monitor_engine_queue(engine, interval=5, logger=None):
         
         # 等待指定间隔
         await asyncio.sleep(interval)
+
+
+async def _cleanup_stale_requests(engine, scheduler, logger):
+    """清理可能的无效请求"""
+    try:
+        current_time = time.time()
+        stale_request_ids = []
+        
+        # 检查等待队列中的请求
+        if hasattr(scheduler, 'waiting') and scheduler.waiting:
+            for seq_group in scheduler.waiting:
+                # 检查请求是否已经等待太久（超过5分钟）
+                if hasattr(seq_group, 'arrival_time'):
+                    wait_time = current_time - seq_group.arrival_time
+                    if wait_time > 300:  # 5分钟
+                        request_id = getattr(seq_group, 'request_id', None)
+                        if request_id:
+                            stale_request_ids.append(request_id)
+        
+        # 如果发现无效请求，尝试清理
+        if stale_request_ids:
+            logger.warning(f"[vllm engine 清理] 发现 {len(stale_request_ids)} 个可能的无效请求，尝试清理")
+            
+            for request_id in stale_request_ids:
+                try:
+                    if hasattr(engine, 'abort_request'):
+                        await engine.abort_request(request_id)
+                        logger.debug(f"[vllm engine 清理] 成功清理请求: {request_id}")
+                except Exception as abort_error:
+                    logger.debug(f"[vllm engine 清理] 清理请求失败 {request_id}: {abort_error}")
+            
+            logger.info(f"[vllm engine 清理] 清理操作完成，尝试清理 {len(stale_request_ids)} 个请求")
+        
+    except Exception as e:
+        logger.warning(f"[vllm engine 清理] 清理过程中出现错误: {e}")
 
 
 def get_gpu_count(logger):

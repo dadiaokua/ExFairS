@@ -104,7 +104,7 @@ async def make_request_direct_engine(engine, experiment, request, start_time=Non
         )
 
         # 发送请求到引擎 - 注意这里返回的是异步生成器
-        request_generator = engine.generate(request, sampling_params, request_id, priority=priority)
+        request_generator = engine.generate(request, sampling_params, request_id)
 
         # 使用async for迭代异步生成器获取最终结果
         request_output = None
