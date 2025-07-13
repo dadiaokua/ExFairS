@@ -63,13 +63,14 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
         # 根据实验类型选择队列策略
         strategy_map = {
             "QUEUE_FIFO": QueueStrategy.FIFO,
-            "QUEUE_PRIORITY": QueueStrategy.PRIORITY,
+            "QUEUE_LFS": QueueStrategy.PRIORITY,
             "QUEUE_ROUND_ROBIN": QueueStrategy.ROUND_ROBIN,
             "QUEUE_SJF": QueueStrategy.SHORTEST_JOB_FIRST,
             "QUEUE_FAIR": QueueStrategy.FAIR_SHARE
         }
 
         strategy = strategy_map.get(args.exp, QueueStrategy.FIFO)
+        logger.info(f"Using queue strategy: {strategy.value}")
         queue_manager = RequestQueueManager(strategy=strategy, max_queue_size=20000)
         queue_manager.set_openai_client(openAI_client)
 

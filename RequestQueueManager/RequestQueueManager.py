@@ -250,8 +250,7 @@ class RequestQueueManager:
                 for client_id, stats in self.client_stats.items():
                     pending_requests = stats['total_requests'] - stats['completed_requests'] - stats['failed_requests']
                     avg_wait_time = stats['total_wait_time'] / max(stats['completed_requests'], 1)
-                    success_rate = stats['completed_requests'] / max(stats['total_requests'], 1) * 100 if stats[
-                                                                                                              'total_requests'] > 0 else 0
+                    success_rate = stats['completed_requests'] / max(stats['total_requests'], 1) * 100 if stats['total_requests'] > 0 else 0
 
                     # 获取token统计
                     token_stats = self.client_token_stats.get(client_id, {})
@@ -416,7 +415,7 @@ class RequestQueueManager:
                         # 计算实际插入位置：从末尾往前数 max_forward_positions 个位置
                         insert_pos = max(0, len(self.priority_queue_list) - max_forward_positions)
 
-                        self.logger.debug(f"优先级请求 {request.request_id} (priority={request.priority}): "
+                        self.logger.info(f"优先级请求 {request.request_id} (priority={request.priority}): "
                                           f"排名比例={priority_rank_ratio:.3f}, 可超越={can_overtake_count}, "
                                           f"前进位置={max_forward_positions}, 插入位置={insert_pos}")
 
