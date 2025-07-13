@@ -27,7 +27,7 @@ class QueueExperiment(BaseExperiment):
         # 队列管理器
         self.queue_manager = queue_manager
         self.queue_strategy = queue_strategy
-        self.queue_workers = 20  # 队列处理worker数量 - 增加到20个以支持更高并发
+        self.queue_workers = 5  # 队列处理worker数量 - 减少到5个，避免过多空闲worker
 
         # 如果没有提供队列管理器，创建一个新的
         if self.queue_manager is None:

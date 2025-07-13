@@ -728,7 +728,7 @@ class RequestQueueManager:
         self.logger.info(f"Worker {worker_name} started (async mode)")
 
         consecutive_empty_cycles = 0
-        max_empty_cycles = 600  # 60秒无请求后记录警告，但不退出
+        max_empty_cycles = 1200  # 120秒无请求后记录警告，但不退出
 
         while self.workers_running:
             try:

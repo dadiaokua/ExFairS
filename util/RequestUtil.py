@@ -98,7 +98,6 @@ async def make_request_direct_engine(engine, experiment, request, start_time=Non
         # 准备请求参数
         sampling_params = SamplingParams(
             n=1,
-            best_of=1,
             temperature=0.8,
             top_p=0.95,
             max_tokens=experiment.output_tokens
