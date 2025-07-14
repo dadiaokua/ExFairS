@@ -96,6 +96,13 @@ class RequestQueueManager:
         # 优化：维护优先级分布的缓存，避免每次重新计算
         self.priority_distribution_cache = {}  # {priority: count}
 
+        # 批量处理配置
+        self.batch_size = 10  # 批量处理的请求数量
+        self.batch_timeout = 2.0  # 批量处理的超时时间（秒）
+        self.pending_batch = []  # 待处理的批量请求
+        self.batch_lock = asyncio.Lock()  # 批量处理锁
+        self.batch_condition = asyncio.Condition(self.batch_lock)  # 批量处理条件变量
+
         # 统计信息
         self.total_requests_processed = 0
         self.start_time = None
@@ -154,6 +161,38 @@ class RequestQueueManager:
         self.priority_insert_multiplier = insert_multiplier
         self.max_priority_positions = max_positions
         self.logger.info(f"Configured partial priority: multiplier={insert_multiplier}, max_positions={max_positions}")
+
+    def configure_batch_processing(self, batch_size: int = 10, batch_timeout: float = 2.0):
+        """配置批量处理参数
+        
+        Args:
+            batch_size: 批量处理的请求数量
+            batch_timeout: 批量处理的超时时间（秒）
+        """
+        self.batch_size = batch_size
+        self.batch_timeout = batch_timeout
+        self.logger.info(f"Configured batch processing: batch_size={batch_size}, batch_timeout={batch_timeout}s")
+
+    def _get_dynamic_batch_size(self) -> int:
+        """根据当前队列状态动态调整批量大小"""
+        # 计算当前队列中的总请求数
+        normal_queue_size = self.request_queue.qsize()
+        priority_queue_size = len(self.priority_queue_list)
+        total_pending = normal_queue_size + priority_queue_size
+        
+        # 动态调整批量大小
+        if total_pending >= 50:
+            # 队列积压较多，增加批量大小
+            return min(20, self.batch_size * 2)
+        elif total_pending >= 20:
+            # 队列中等，使用标准批量大小
+            return self.batch_size
+        elif total_pending >= 5:
+            # 队列较少，减少批量大小
+            return max(5, self.batch_size // 2)
+        else:
+            # 队列很少，使用最小批量大小
+            return max(3, self.batch_size // 3)
 
     async def register_client(self, client_id: str, client_type: str = "unknown"):
         """注册客户端"""
@@ -306,6 +345,12 @@ class RequestQueueManager:
                         self.logger.info(f"  客户端 {client_id}: 队列中 {queue_stats['total_in_queue']} 个请求, "
                                          f"已处理 {processing_stats.get('completed_requests', 0)}/{processing_stats.get('total_requests', 0)}, "
                                          f"成功率 {processing_stats.get('success_rate', 0):.1f}%")
+                
+                # 显示批量处理信息
+                if total_pending > 0:
+                    dynamic_batch_size = self._get_dynamic_batch_size()
+                    self.logger.info(f"[queue manager 队列监控] 当前动态批量大小: {dynamic_batch_size} "
+                                   f"(基础: {self.batch_size}, 超时: {self.batch_timeout}s)")
 
             except Exception as e:
                 self.logger.error(f"[queue manager 队列监控] 监控过程中出现错误: {e}")
@@ -724,44 +769,87 @@ class RequestQueueManager:
                 self.logger.info("Queue manager processing stopped")
 
     async def _worker(self, worker_name: str):
-        """工作协程 - 异步模式：快速提交请求，不等待完成"""
-        self.logger.info(f"Worker {worker_name} started (async mode)")
+        """工作协程 - 批量处理模式：积累请求后批量发送给引擎"""
+        self.logger.info(f"Worker {worker_name} started (batch processing mode: batch_size={self.batch_size}, timeout={self.batch_timeout}s)")
 
         consecutive_empty_cycles = 0
         max_empty_cycles = 1200  # 120秒无请求后记录警告，但不退出
 
         while self.workers_running:
             try:
-                self.logger.debug(f"Worker {worker_name}: Attempting to get next request...")
-                request = await self._get_next_request()
-                if request is None:
-                    consecutive_empty_cycles += 1
-                    if consecutive_empty_cycles == max_empty_cycles:
-                        self.logger.warning(
-                            f"Worker {worker_name}: No requests for {max_empty_cycles * 0.1:.1f} seconds")
-                        consecutive_empty_cycles = 0  # 重置计数器
-
-                    self.logger.debug(f"Worker {worker_name}: No request available, sleeping...")
-                    await asyncio.sleep(0.1)  # 没有请求时短暂休眠
+                # 收集一批请求
+                batch_requests = []
+                batch_start_time = time.time()
+                
+                # 尝试收集批量请求
+                while len(batch_requests) < self._get_dynamic_batch_size() and self.workers_running:
+                    # 计算剩余时间
+                    elapsed = time.time() - batch_start_time
+                    remaining_timeout = max(0.1, self.batch_timeout - elapsed)
+                    
+                    if remaining_timeout <= 0:
+                        # 超时，处理当前批次
+                        break
+                    
+                    # 尝试获取请求
+                    try:
+                        request = await asyncio.wait_for(self._get_next_request(), timeout=remaining_timeout)
+                        if request is None:
+                            consecutive_empty_cycles += 1
+                            if consecutive_empty_cycles >= max_empty_cycles:
+                                self.logger.warning(f"Worker {worker_name}: No requests for {max_empty_cycles * 0.1:.1f} seconds")
+                                consecutive_empty_cycles = 0
+                            await asyncio.sleep(0.1)
+                            continue
+                        
+                        # 重置空循环计数器
+                        consecutive_empty_cycles = 0
+                        batch_requests.append(request)
+                        
+                    except asyncio.TimeoutError:
+                        # 超时，处理当前批次
+                        break
+                
+                # 如果没有请求，短暂休眠后继续
+                if not batch_requests:
+                    await asyncio.sleep(0.1)
                     continue
-
-                # 重置空循环计数器
-                consecutive_empty_cycles = 0
-
-                if not isinstance(request, QueuedRequest):
-                    self.logger.error(f"Worker {worker_name}: Invalid request type: {type(request)}")
-                    continue
-
-                self.logger.debug(
-                    f"Worker {worker_name}: Submitting request {request.request_id} from client {request.client_id}")
-
-                # 异步提交请求（不等待完成）
-                asyncio.create_task(
-                    self._process_request_async(request, worker_name)
-                )
-
-                # 立即继续处理下一个请求，不等待当前请求完成
-
+                
+                # 批量处理请求
+                batch_size = len(batch_requests)
+                dynamic_batch_size = self._get_dynamic_batch_size()
+                normal_queue_size = self.request_queue.qsize()
+                priority_queue_size = len(self.priority_queue_list)
+                total_pending = normal_queue_size + priority_queue_size
+                
+                self.logger.info(f"Worker {worker_name}: Processing batch of {batch_size} requests "
+                               f"(target: {dynamic_batch_size}, pending: {total_pending}, "
+                               f"collected in {time.time() - batch_start_time:.2f}s)")
+                
+                # 为每个请求创建异步处理任务
+                processing_tasks = []
+                for request in batch_requests:
+                    if not isinstance(request, QueuedRequest):
+                        self.logger.error(f"Worker {worker_name}: Invalid request type: {type(request)}")
+                        continue
+                    
+                    # 创建异步处理任务
+                    task = asyncio.create_task(
+                        self._process_request_async(request, worker_name)
+                    )
+                    processing_tasks.append(task)
+                
+                # 记录批量提交信息
+                priorities = [req.priority for req in batch_requests]
+                priority_counts = {}
+                for p in priorities:
+                    priority_counts[p] = priority_counts.get(p, 0) + 1
+                
+                self.logger.info(f"Worker {worker_name}: Batch submitted with priorities: {dict(sorted(priority_counts.items()))}")
+                
+                # 不等待处理完成，立即处理下一批
+                # 这样可以保持持续的批量处理流
+                
             except Exception as e:
                 self.logger.error(f"Worker {worker_name} error: {str(e)}")
                 await asyncio.sleep(1.0)

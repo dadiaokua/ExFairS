@@ -72,8 +72,18 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
         strategy = strategy_map.get(args.exp, QueueStrategy.FIFO)
         logger.info(f"Using queue strategy: {strategy.value}")
         queue_manager = RequestQueueManager(strategy=strategy, max_queue_size=20000)
+        
+        # 配置队列管理器
+        if strategy == QueueStrategy.PRIORITY:
+            # 配置部分优先级参数
+            queue_manager.configure_partial_priority(insert_multiplier=2, max_positions=50)
+        
+        # 配置批量处理参数
+        queue_manager.configure_batch_processing(batch_size=10, batch_timeout=2.0)
+        
+        # 设置OpenAI客户端
         queue_manager.set_openai_client(openAI_client)
-
+        
         # 启动队列管理器（在后台运行）
         queue_manager_task = asyncio.create_task(queue_manager.start_processing(num_workers=5))
         logger.info(f"Created queue manager with strategy: {strategy.value}")
