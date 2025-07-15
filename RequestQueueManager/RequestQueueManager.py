@@ -99,6 +99,7 @@ class RequestQueueManager:
         # 批量处理配置
         self.batch_size = 10  # 批量处理的请求数量
         self.batch_timeout = 2.0  # 批量处理的超时时间（秒）
+        self.min_batch_size = 10  # 最小批量大小，确保优先级策略有效
         self.pending_batch = []  # 待处理的批量请求
         self.batch_lock = asyncio.Lock()  # 批量处理锁
         self.batch_condition = asyncio.Condition(self.batch_lock)  # 批量处理条件变量
@@ -162,16 +163,18 @@ class RequestQueueManager:
         self.max_priority_positions = max_positions
         self.logger.info(f"Configured partial priority: multiplier={insert_multiplier}, max_positions={max_positions}")
 
-    def configure_batch_processing(self, batch_size: int = 10, batch_timeout: float = 2.0):
+    def configure_batch_processing(self, batch_size: int = 10, batch_timeout: float = 2.0, min_batch_size: int = None):
         """配置批量处理参数
         
         Args:
             batch_size: 批量处理的请求数量
             batch_timeout: 批量处理的超时时间（秒）
+            min_batch_size: 最小批量大小，确保优先级策略有效（默认等于batch_size）
         """
         self.batch_size = batch_size
         self.batch_timeout = batch_timeout
-        self.logger.info(f"Configured batch processing: batch_size={batch_size}, batch_timeout={batch_timeout}s")
+        self.min_batch_size = min_batch_size if min_batch_size is not None else batch_size
+        self.logger.info(f"Configured batch processing: batch_size={batch_size}, batch_timeout={batch_timeout}s, min_batch_size={self.min_batch_size}")
 
     def _get_dynamic_batch_size(self) -> int:
         """根据当前队列状态动态调整批量大小"""
@@ -180,19 +183,20 @@ class RequestQueueManager:
         priority_queue_size = len(self.priority_queue_list)
         total_pending = normal_queue_size + priority_queue_size
         
-        # 动态调整批量大小
-        if total_pending >= 50:
+        # 动态调整批量大小 - 确保至少积累10个请求才开始处理
+        if total_pending >= 100:
+            # 队列积压很多，增加批量大小
+            return min(30, self.batch_size * 3)
+        elif total_pending >= 50:
             # 队列积压较多，增加批量大小
             return min(20, self.batch_size * 2)
         elif total_pending >= 20:
             # 队列中等，使用标准批量大小
             return self.batch_size
-        elif total_pending >= 5:
-            # 队列较少，减少批量大小
-            return max(5, self.batch_size // 2)
         else:
-            # 队列很少，使用最小批量大小
-            return max(3, self.batch_size // 3)
+            # 队列较少，但仍然保持最小10个请求的批量大小
+            # 这样可以让优先级策略有更大的发挥空间
+            return max(10, self.batch_size)
 
     async def register_client(self, client_id: str, client_type: str = "unknown"):
         """注册客户端"""
@@ -781,15 +785,32 @@ class RequestQueueManager:
                 batch_requests = []
                 batch_start_time = time.time()
                 
+                # 获取动态批量大小
+                dynamic_batch_size = self._get_dynamic_batch_size()
+                min_batch_size = self.min_batch_size  # 使用配置的最小批量大小，确保优先级策略有效
+                
                 # 尝试收集批量请求
-                while len(batch_requests) < self._get_dynamic_batch_size() and self.workers_running:
+                while len(batch_requests) < dynamic_batch_size and self.workers_running:
                     # 计算剩余时间
                     elapsed = time.time() - batch_start_time
-                    remaining_timeout = max(0.1, self.batch_timeout - elapsed)
+                    
+                    # 如果还没有达到最小批量大小，给更多时间等待
+                    if len(batch_requests) < min_batch_size:
+                        # 对于最小批量大小，给更长的等待时间
+                        remaining_timeout = max(0.1, self.batch_timeout * 2 - elapsed)
+                    else:
+                        # 已经达到最小批量大小，使用正常超时
+                        remaining_timeout = max(0.1, self.batch_timeout - elapsed)
                     
                     if remaining_timeout <= 0:
-                        # 超时，处理当前批次
-                        break
+                        # 超时，但检查是否达到最小批量大小
+                        if len(batch_requests) < min_batch_size:
+                            # 没有达到最小批量大小，继续等待一小段时间
+                            await asyncio.sleep(0.5)
+                            continue
+                        else:
+                            # 达到最小批量大小，可以处理当前批次
+                            break
                     
                     # 尝试获取请求
                     try:
@@ -807,17 +828,30 @@ class RequestQueueManager:
                         batch_requests.append(request)
                         
                     except asyncio.TimeoutError:
-                        # 超时，处理当前批次
-                        break
+                        # 超时，检查是否达到最小批量大小
+                        if len(batch_requests) < min_batch_size:
+                            # 没有达到最小批量大小，继续等待
+                            continue
+                        else:
+                            # 达到最小批量大小，可以处理当前批次
+                            break
                 
                 # 如果没有请求，短暂休眠后继续
                 if not batch_requests:
                     await asyncio.sleep(0.1)
                     continue
                 
+                # 最终检查：如果批量大小小于最小要求，继续等待
+                if len(batch_requests) < min_batch_size:
+                    # 记录等待信息
+                    if len(batch_requests) > 0:
+                        self.logger.info(f"Worker {worker_name}: Waiting for more requests "
+                                       f"(current: {len(batch_requests)}, minimum: {min_batch_size})")
+                    await asyncio.sleep(0.5)
+                    continue
+                
                 # 批量处理请求
                 batch_size = len(batch_requests)
-                dynamic_batch_size = self._get_dynamic_batch_size()
                 normal_queue_size = self.request_queue.qsize()
                 priority_queue_size = len(self.priority_queue_list)
                 total_pending = normal_queue_size + priority_queue_size

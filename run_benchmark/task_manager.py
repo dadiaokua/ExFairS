@@ -79,7 +79,7 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
             queue_manager.configure_partial_priority(insert_multiplier=2, max_positions=50)
         
         # 配置批量处理参数
-        queue_manager.configure_batch_processing(batch_size=10, batch_timeout=2.0)
+        queue_manager.configure_batch_processing(batch_size=15, batch_timeout=3.0, min_batch_size=10)
         
         # 设置OpenAI客户端
         queue_manager.set_openai_client(openAI_client)

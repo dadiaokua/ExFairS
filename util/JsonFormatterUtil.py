@@ -67,9 +67,63 @@ class QAJsonFormatter:
                         print(f"文件 {jsonl_file} 为空")
                         continue
 
-                    if client_type == "long":
-                        if len(data["conversations"]) >= 2:
+                    # 提取prompt的逻辑，支持多种数据格式
+                    prompt = None
+                    
+                    try:
+                        # 方法1: ShareGPT格式 - conversations字段
+                        if "conversations" in data and len(data["conversations"]) >= 2:
                             prompt = data["conversations"][0]["value"]
+                        # 方法2: LongBench格式 - context和input字段
+                        elif "context" in data and "input" in data:
+                            # 获取数据集名称
+                            dataset_name = jsonl_file.split('.')[0]
+                            
+                            # 获取对应的prompt模板
+                            prompt_template = dataset2prompt.get(dataset_name, "")
+                            
+                            if prompt_template:
+                                # 使用模板格式化prompt
+                                prompt = prompt_template.format(
+                                    context=data["context"], 
+                                    input=data["input"]
+                                )
+                            else:
+                                # 如果没有模板，直接组合context和input
+                                if data["input"].strip():
+                                    prompt = f"Context: {data['context']}\n\nQuestion: {data['input']}"
+                                else:
+                                    # 对于只有context的任务（如摘要任务）
+                                    prompt = data["context"]
+                        # 方法3: 只有context字段（摘要任务）
+                        elif "context" in data:
+                            prompt = data["context"]
+                        # 方法4: 只有input字段
+                        elif "input" in data:
+                            prompt = data["input"]
+                        # 方法5: 其他格式 - prompt或question字段
+                        elif "prompt" in data:
+                            prompt = data["prompt"]
+                        elif "question" in data:
+                            prompt = data["question"]
+                        # 方法6: 如果有passages，使用第一个passage
+                        elif "passages" in data and len(data["passages"]) > 0:
+                            prompt = data["passages"][0]
+                        else:
+                            # 如果都没有，跳过这条数据
+                            print(f"警告: 文件 {jsonl_file} 中的数据没有找到有效的prompt字段，跳过。数据键: {list(data.keys())}")
+                            continue
+                            
+                        if not prompt or not isinstance(prompt, str) or len(prompt.strip()) == 0:
+                            print(f"警告: 文件 {jsonl_file} 中提取到无效的prompt，跳过。prompt类型: {type(prompt)}, 长度: {len(str(prompt)) if prompt else 0}")
+                            continue
+                            
+                    except Exception as e:
+                        print(f"错误: 处理文件 {jsonl_file} 中的数据时出错: {e}")
+                        continue
+
+                    # 根据client_type处理prompt
+                    if client_type == "long":
                         model_max_len = 8124  # 防止意外
                         tokenized_prompt = tokenizer(prompt, truncation=True, max_length=model_max_len - 256,
                                               return_tensors="pt").input_ids[0]
@@ -78,8 +132,6 @@ class QAJsonFormatter:
                         else:
                             file_prompts.append(tokenizer.decode(tokenized_prompt, skip_special_tokens=True))
                     else:
-                        if len(data["conversations"]) >= 2:
-                            prompt = data["conversations"][0]["value"]
                         model_max_len = 2048  # 防止意外
                         tokenized_prompt = tokenizer(prompt, truncation=True, max_length=model_max_len - 256,
                                                      return_tensors="pt").input_ids[0]
@@ -99,13 +151,17 @@ class QAJsonFormatter:
             tasks.append(task)
 
         # 并发执行所有任务
-        file_results = await asyncio.gather(*tasks)
+        file_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 合并所有文件的结果
-        for result in file_results:
-            prompts.extend(result)
-            if len(prompts) > num_request:
-                break
+        # 合并所有文件的结果，跳过失败的文件
+        for i, result in enumerate(file_results):
+            if isinstance(result, Exception):
+                print(f"文件 {jsonl_files[i]} 处理失败: {result}")
+                continue
+            elif result:  # 确保result不为空
+                prompts.extend(result)
+                if len(prompts) > num_request:
+                    break
 
         if not prompts:
             print("没有找到有效的对话数据")
@@ -144,10 +200,10 @@ async def prepare_benchmark_data(client_type, tokenizer):
 
 
 def open_jsonl_file(client_type, datasets):
-    if client_type == "short" or client_type == "long":
+    if client_type == "short":
         dataset_path = "../sharegpt_gpt4/"
     else:
-        dataset_path = "longbench/"
+        dataset_path = "../longbench/"
 
     if not os.path.exists(dataset_path):
         print(f"目录 {dataset_path} 不存在")
@@ -294,14 +350,22 @@ if __name__ == "__main__":
 
     # Save short context prompts
     short_prompts_path = '../prompt_hub/short_prompts.json'
-    short_formatted_json, prompt_time_data = asyncio.run(prepare_benchmark_data('short', tokenizer))
-    with open(short_prompts_path, 'w', encoding='utf-8') as f:
-        json.dump(short_formatted_json, f, indent=2, ensure_ascii=False)
-        print(f"Short prompts saved to {short_prompts_path}")
+    result = asyncio.run(prepare_benchmark_data('short', tokenizer))
+    if result:
+        short_formatted_json, prompt_time_data = result
+        with open(short_prompts_path, 'w', encoding='utf-8') as f:
+            json.dump(short_formatted_json, f, indent=2, ensure_ascii=False)
+            print(f"Short prompts saved to {short_prompts_path}")
+    else:
+        print("Failed to prepare short benchmark data")
 
     # Save long context prompts
     long_prompts_path = '../prompt_hub/long_prompts.json'
-    long_formatted_json, _ = asyncio.run(prepare_benchmark_data('long', tokenizer))
-    with open(long_prompts_path, 'w', encoding='utf-8') as f:
-        json.dump(long_formatted_json, f, indent=2, ensure_ascii=False)
-        print(f"Long prompts saved to {long_prompts_path}")
+    result = asyncio.run(prepare_benchmark_data('long', tokenizer))
+    if result:
+        long_formatted_json, _ = result
+        with open(long_prompts_path, 'w', encoding='utf-8') as f:
+            json.dump(long_formatted_json, f, indent=2, ensure_ascii=False)
+            print(f"Long prompts saved to {long_prompts_path}")
+    else:
+        print("Failed to prepare long benchmark data")
