@@ -96,14 +96,6 @@ class RequestQueueManager:
         # 优化：维护优先级分布的缓存，避免每次重新计算
         self.priority_distribution_cache = {}  # {priority: count}
 
-        # 批量处理配置
-        self.batch_size = 10  # 批量处理的请求数量
-        self.batch_timeout = 2.0  # 批量处理的超时时间（秒）
-        self.min_batch_size = 10  # 最小批量大小，确保优先级策略有效
-        self.pending_batch = []  # 待处理的批量请求
-        self.batch_lock = asyncio.Lock()  # 批量处理锁
-        self.batch_condition = asyncio.Condition(self.batch_lock)  # 批量处理条件变量
-
         # 统计信息
         self.total_requests_processed = 0
         self.start_time = None
@@ -114,6 +106,9 @@ class RequestQueueManager:
 
         # 用于跟踪已提交的request_id，避免重复
         self._submitted_request_ids = set()
+
+        # 优先级队列控制开关
+        self._skip_queue_length_check = False  # 是否跳过队列长度检查
 
     def _setup_logger(self):
         """设置日志记录器"""
@@ -162,41 +157,6 @@ class RequestQueueManager:
         self.priority_insert_multiplier = insert_multiplier
         self.max_priority_positions = max_positions
         self.logger.info(f"Configured partial priority: multiplier={insert_multiplier}, max_positions={max_positions}")
-
-    def configure_batch_processing(self, batch_size: int = 10, batch_timeout: float = 2.0, min_batch_size: int = None):
-        """配置批量处理参数
-        
-        Args:
-            batch_size: 批量处理的请求数量
-            batch_timeout: 批量处理的超时时间（秒）
-            min_batch_size: 最小批量大小，确保优先级策略有效（默认等于batch_size）
-        """
-        self.batch_size = batch_size
-        self.batch_timeout = batch_timeout
-        self.min_batch_size = min_batch_size if min_batch_size is not None else batch_size
-        self.logger.info(f"Configured batch processing: batch_size={batch_size}, batch_timeout={batch_timeout}s, min_batch_size={self.min_batch_size}")
-
-    def _get_dynamic_batch_size(self) -> int:
-        """根据当前队列状态动态调整批量大小"""
-        # 计算当前队列中的总请求数
-        normal_queue_size = self.request_queue.qsize()
-        priority_queue_size = len(self.priority_queue_list)
-        total_pending = normal_queue_size + priority_queue_size
-        
-        # 动态调整批量大小 - 确保至少积累10个请求才开始处理
-        if total_pending >= 100:
-            # 队列积压很多，增加批量大小
-            return min(30, self.batch_size * 3)
-        elif total_pending >= 50:
-            # 队列积压较多，增加批量大小
-            return min(20, self.batch_size * 2)
-        elif total_pending >= 20:
-            # 队列中等，使用标准批量大小
-            return self.batch_size
-        else:
-            # 队列较少，但仍然保持最小10个请求的批量大小
-            # 这样可以让优先级策略有更大的发挥空间
-            return max(10, self.batch_size)
 
     async def register_client(self, client_id: str, client_type: str = "unknown"):
         """注册客户端"""
@@ -349,12 +309,6 @@ class RequestQueueManager:
                         self.logger.info(f"  客户端 {client_id}: 队列中 {queue_stats['total_in_queue']} 个请求, "
                                          f"已处理 {processing_stats.get('completed_requests', 0)}/{processing_stats.get('total_requests', 0)}, "
                                          f"成功率 {processing_stats.get('success_rate', 0):.1f}%")
-                
-                # 显示批量处理信息
-                if total_pending > 0:
-                    dynamic_batch_size = self._get_dynamic_batch_size()
-                    self.logger.info(f"[queue manager 队列监控] 当前动态批量大小: {dynamic_batch_size} "
-                                   f"(基础: {self.batch_size}, 超时: {self.batch_timeout}s)")
 
             except Exception as e:
                 self.logger.error(f"[queue manager 队列监控] 监控过程中出现错误: {e}")
@@ -416,6 +370,11 @@ class RequestQueueManager:
                 # 数字越小的优先级越高，但不会直接插到所有低优先级请求的前面
                 # 而是根据优先级差值计算允许的前进位置数
                 async with self.priority_queue_lock:
+                    # 如果队列从空变为有请求，重置跳过开关
+                    if len(self.priority_queue_list) == 0:
+                        self._skip_queue_length_check = False
+                        self.logger.debug("队列从空变为有请求，重置跳过开关")
+                    
                     if len(self.priority_distribution_cache) == 0:
                         # 缓存为空，直接插入到末尾
                         insert_pos = len(self.priority_queue_list)
@@ -543,19 +502,87 @@ class RequestQueueManager:
             return None
 
     async def _get_priority_request(self) -> Optional[QueuedRequest]:
-        """部分优先级策略：从列表头部取出请求"""
+        """部分优先级策略：从列表头部取出请求，实现队列堆积逻辑"""
         async with self.priority_queue_lock:
-            if self.priority_queue_list:
-                request = self.priority_queue_list.pop(0)  # 从头部取出（FIFO基础上的部分优先级）
-
+            queue_size = len(self.priority_queue_list)
+            
+            # 如果队列为空，返回None
+            if queue_size == 0:
+                return None
+            
+            # 如果已经跳过队列长度检查，直接取出第一个
+            if self._skip_queue_length_check:
+                request = self.priority_queue_list.pop(0)
+                
                 # 更新优先级分布缓存（减量更新）
                 if request.priority in self.priority_distribution_cache:
                     self.priority_distribution_cache[request.priority] -= 1
                     if self.priority_distribution_cache[request.priority] <= 0:
                         del self.priority_distribution_cache[request.priority]
-
+                
+                self.logger.info(f"跳过长度检查取出请求 {request.request_id} (priority={request.priority}), "
+                               f"队列长度: {queue_size} -> {len(self.priority_queue_list)}")
                 return request
-            return None
+            
+            # 如果队列长度超过10个，直接取出第一个
+            if queue_size > 10:
+                request = self.priority_queue_list.pop(0)
+                
+                # 更新优先级分布缓存（减量更新）
+                if request.priority in self.priority_distribution_cache:
+                    self.priority_distribution_cache[request.priority] -= 1
+                    if self.priority_distribution_cache[request.priority] <= 0:
+                        del self.priority_distribution_cache[request.priority]
+                
+                self.logger.info(f"取出请求 {request.request_id} (priority={request.priority}), "
+                               f"队列长度: {queue_size} -> {len(self.priority_queue_list)}")
+                return request
+            
+            # 如果队列长度小于等于10个，等待3秒后直接取出第一个，并设置跳过开关
+            try:
+                # 等待最多3秒，看是否有新请求加入
+                await asyncio.wait_for(self._wait_for_new_request(), timeout=3.0)
+                # 3秒后直接取出第一个请求，并设置跳过开关
+                request = self.priority_queue_list.pop(0)
+                
+                # 更新优先级分布缓存（减量更新）
+                if request.priority in self.priority_distribution_cache:
+                    self.priority_distribution_cache[request.priority] -= 1
+                    if self.priority_distribution_cache[request.priority] <= 0:
+                        del self.priority_distribution_cache[request.priority]
+                
+                # 设置跳过开关，后续不再检查队列长度
+                self._skip_queue_length_check = True
+                
+                self.logger.info(f"3秒超时后取出请求 {request.request_id} (priority={request.priority}), "
+                               f"队列长度: {queue_size} -> {len(self.priority_queue_list)}, 设置跳过开关")
+                return request
+                    
+            except asyncio.TimeoutError:
+                # 3秒超时，取出第一个请求，并设置跳过开关
+                request = self.priority_queue_list.pop(0)
+                
+                # 更新优先级分布缓存（减量更新）
+                if request.priority in self.priority_distribution_cache:
+                    self.priority_distribution_cache[request.priority] -= 1
+                    if self.priority_distribution_cache[request.priority] <= 0:
+                        del self.priority_distribution_cache[request.priority]
+                
+                # 设置跳过开关，后续不再检查队列长度
+                self._skip_queue_length_check = True
+                
+                self.logger.info(f"3秒超时后取出请求 {request.request_id} (priority={request.priority}), "
+                               f"队列长度: {queue_size} -> {len(self.priority_queue_list)}, 设置跳过开关")
+                return request
+
+    async def _wait_for_new_request(self):
+        """等待新请求加入队列的辅助方法"""
+        # 记录当前队列长度
+        initial_size = len(self.priority_queue_list)
+        
+        # 等待队列长度发生变化
+        while len(self.priority_queue_list) == initial_size:
+            await asyncio.sleep(0.1)
 
     async def _get_round_robin_request(self) -> Optional[QueuedRequest]:
         """轮询策略：轮流处理不同客户端的请求"""
@@ -774,126 +801,43 @@ class RequestQueueManager:
                 self.logger.info("Queue manager processing stopped")
 
     async def _worker(self, worker_name: str):
-        """工作协程 - 批量处理模式：积累请求后批量发送给引擎"""
-        self.logger.info(f"Worker {worker_name} started (batch processing mode: batch_size={self.batch_size}, timeout={self.batch_timeout}s)")
+        """工作协程 - 从队列中取出请求进行处理"""
+        self.logger.info(f"Worker {worker_name} started")
 
         consecutive_empty_cycles = 0
         max_empty_cycles = 1200  # 120秒无请求后记录警告，但不退出
 
         while self.workers_running:
             try:
-                # 收集一批请求
-                batch_requests = []
-                batch_start_time = time.time()
+                # 获取下一个请求
+                request = await self._get_next_request()
                 
-                # 获取动态批量大小
-                dynamic_batch_size = self._get_dynamic_batch_size()
-                min_batch_size = self.min_batch_size  # 使用配置的最小批量大小，确保优先级策略有效
-                
-                # 尝试收集批量请求
-                while len(batch_requests) < dynamic_batch_size and self.workers_running:
-                    # 计算剩余时间
-                    elapsed = time.time() - batch_start_time
-                    
-                    # 如果还没有达到最小批量大小，给更多时间等待
-                    if len(batch_requests) < min_batch_size:
-                        # 对于最小批量大小，给更长的等待时间
-                        remaining_timeout = max(0.1, self.batch_timeout * 2 - elapsed)
-                    else:
-                        # 已经达到最小批量大小，使用正常超时
-                        remaining_timeout = max(0.1, self.batch_timeout - elapsed)
-                    
-                    if remaining_timeout <= 0:
-                        # 超时，但检查是否达到最小批量大小
-                        if len(batch_requests) < min_batch_size:
-                            # 没有达到最小批量大小，继续等待一小段时间
-                            await asyncio.sleep(0.5)
-                            continue
-                        else:
-                            # 达到最小批量大小，可以处理当前批次
-                            break
-                    
-                    # 尝试获取请求
-                    try:
-                        request = await asyncio.wait_for(self._get_next_request(), timeout=remaining_timeout)
-                        if request is None:
-                            consecutive_empty_cycles += 1
-                            if consecutive_empty_cycles >= max_empty_cycles:
-                                self.logger.warning(f"Worker {worker_name}: No requests for {max_empty_cycles * 0.1:.1f} seconds")
-                                consecutive_empty_cycles = 0
-                            await asyncio.sleep(0.1)
-                            continue
-                        
-                        # 重置空循环计数器
+                if request is None:
+                    consecutive_empty_cycles += 1
+                    if consecutive_empty_cycles >= max_empty_cycles:
+                        self.logger.warning(f"Worker {worker_name}: No requests for {max_empty_cycles * 0.1:.1f} seconds")
                         consecutive_empty_cycles = 0
-                        batch_requests.append(request)
-                        
-                    except asyncio.TimeoutError:
-                        # 超时，检查是否达到最小批量大小
-                        if len(batch_requests) < min_batch_size:
-                            # 没有达到最小批量大小，继续等待
-                            continue
-                        else:
-                            # 达到最小批量大小，可以处理当前批次
-                            break
-                
-                # 如果没有请求，短暂休眠后继续
-                if not batch_requests:
                     await asyncio.sleep(0.1)
                     continue
                 
-                # 最终检查：如果批量大小小于最小要求，继续等待
-                if len(batch_requests) < min_batch_size:
-                    # 记录等待信息
-                    if len(batch_requests) > 0:
-                        normal_queue_size = self.request_queue.qsize()
-                        priority_queue_size = len(self.priority_queue_list)
-                        total_pending = normal_queue_size + priority_queue_size
-                        self.logger.info(f"Worker {worker_name}: Waiting for more requests "
-                                       f"(current: {len(batch_requests)}, minimum: {min_batch_size}, "
-                                       f"队列总长度: {total_pending})")
-                    await asyncio.sleep(0.5)
-                    continue
+                # 重置空循环计数器
+                consecutive_empty_cycles = 0
                 
-                # 批量处理请求
-                batch_size = len(batch_requests)
+                # 处理单个请求
+                self.logger.debug(f"Worker {worker_name}: Processing request {request.request_id}")
+                
+                # 创建异步处理任务
+                task = asyncio.create_task(
+                    self._process_request_async(request, worker_name)
+                )
+                
+                # 记录处理信息
                 normal_queue_size = self.request_queue.qsize()
                 priority_queue_size = len(self.priority_queue_list)
                 total_pending = normal_queue_size + priority_queue_size
                 
-                self.logger.info(f"Worker {worker_name}: Processing batch of {batch_size} requests "
-                               f"(target: {dynamic_batch_size}, pending: {total_pending}, "
-                               f"collected in {time.time() - batch_start_time:.2f}s, "
-                               f"队列总长度: {total_pending})")
-                
-                # 为每个请求创建异步处理任务
-                processing_tasks = []
-                for request in batch_requests:
-                    if not isinstance(request, QueuedRequest):
-                        self.logger.error(f"Worker {worker_name}: Invalid request type: {type(request)}")
-                        continue
-                    
-                    # 创建异步处理任务
-                    task = asyncio.create_task(
-                        self._process_request_async(request, worker_name)
-                    )
-                    processing_tasks.append(task)
-                
-                # 记录批量提交信息
-                priorities = [req.priority for req in batch_requests]
-                priority_counts = {}
-                for p in priorities:
-                    priority_counts[p] = priority_counts.get(p, 0) + 1
-                
-                normal_queue_size = self.request_queue.qsize()
-                priority_queue_size = len(self.priority_queue_list)
-                total_pending = normal_queue_size + priority_queue_size
-                
-                self.logger.info(f"Worker {worker_name}: Batch submitted with priorities: {dict(sorted(priority_counts.items()))} "
-                               f"(队列总长度: {total_pending})")
-                
-                # 不等待处理完成，立即处理下一批
-                # 这样可以保持持续的批量处理流
+                self.logger.info(f"Worker {worker_name}: Processing request {request.request_id} "
+                               f"(priority={request.priority}, 队列总长度: {total_pending})")
                 
             except Exception as e:
                 self.logger.error(f"Worker {worker_name} error: {str(e)}")
