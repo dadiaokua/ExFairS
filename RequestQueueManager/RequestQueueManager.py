@@ -466,7 +466,8 @@ class RequestQueueManager:
 
                         self.logger.info(f"优先级请求 {request.request_id} (priority={request.priority}): "
                                           f"排名比例={priority_rank_ratio:.3f}, 可超越={can_overtake_count}, "
-                                          f"前进位置={max_forward_positions}, 插入位置={insert_pos}")
+                                          f"前进位置={max_forward_positions}, 插入位置={insert_pos}, "
+                                          f"队列总长度={len(self.priority_queue_list)}")
 
                     # 执行插入操作
                     self.priority_queue_list.insert(insert_pos, request)
@@ -479,10 +480,10 @@ class RequestQueueManager:
                     if insert_pos < len(self.priority_queue_list):
                         jumped_positions = len(self.priority_queue_list) - insert_pos
                         self.logger.info(f"请求 {request.request_id} (priority={request.priority}) "
-                                         f"在队列中前进了 {jumped_positions} 个位置")
+                                         f"在队列中前进了 {jumped_positions} 个位置 (队列总长度: {len(self.priority_queue_list)})")
                     else:
                         self.logger.debug(f"请求 {request.request_id} (priority={request.priority}) "
-                                          f"插入到队列末尾")
+                                          f"插入到队列末尾 (队列总长度: {len(self.priority_queue_list)})")
             elif self.strategy == QueueStrategy.ROUND_ROBIN:
                 # 轮询策略：将请求放入对应客户端的队列
                 if client_id not in self.client_queues:
@@ -845,8 +846,12 @@ class RequestQueueManager:
                 if len(batch_requests) < min_batch_size:
                     # 记录等待信息
                     if len(batch_requests) > 0:
+                        normal_queue_size = self.request_queue.qsize()
+                        priority_queue_size = len(self.priority_queue_list)
+                        total_pending = normal_queue_size + priority_queue_size
                         self.logger.info(f"Worker {worker_name}: Waiting for more requests "
-                                       f"(current: {len(batch_requests)}, minimum: {min_batch_size})")
+                                       f"(current: {len(batch_requests)}, minimum: {min_batch_size}, "
+                                       f"队列总长度: {total_pending})")
                     await asyncio.sleep(0.5)
                     continue
                 
@@ -858,7 +863,8 @@ class RequestQueueManager:
                 
                 self.logger.info(f"Worker {worker_name}: Processing batch of {batch_size} requests "
                                f"(target: {dynamic_batch_size}, pending: {total_pending}, "
-                               f"collected in {time.time() - batch_start_time:.2f}s)")
+                               f"collected in {time.time() - batch_start_time:.2f}s, "
+                               f"队列总长度: {total_pending})")
                 
                 # 为每个请求创建异步处理任务
                 processing_tasks = []
@@ -879,7 +885,12 @@ class RequestQueueManager:
                 for p in priorities:
                     priority_counts[p] = priority_counts.get(p, 0) + 1
                 
-                self.logger.info(f"Worker {worker_name}: Batch submitted with priorities: {dict(sorted(priority_counts.items()))}")
+                normal_queue_size = self.request_queue.qsize()
+                priority_queue_size = len(self.priority_queue_list)
+                total_pending = normal_queue_size + priority_queue_size
+                
+                self.logger.info(f"Worker {worker_name}: Batch submitted with priorities: {dict(sorted(priority_counts.items()))} "
+                               f"(队列总长度: {total_pending})")
                 
                 # 不等待处理完成，立即处理下一批
                 # 这样可以保持持续的批量处理流
