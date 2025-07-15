@@ -521,15 +521,15 @@ def plot_aggregated_results(sorted_all_results, args_concurrency, total_time, fi
         },
         {
             'key': 'latency',
-            'title': 'Average Latency (ms)',
+            'title': 'Average Latency (s)',
             'method': 'average',
             'extractor': lambda result: result['latency']['p99']
         },
         {
             'key': 'time_to_first_token',
-            'title': 'Average Time to First Token (ms)',
+            'title': 'Average Time to First Token (s)',
             'method': 'average',
-            'extractor': lambda result: result['time_to_first_token']['p99']
+            'extractor': lambda result: result['time_to_first_token']['p99'] / 1000
         },
         {
             'key': 'requests_per_second',
