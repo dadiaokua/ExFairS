@@ -734,7 +734,7 @@ class RequestQueueManager:
         while self.workers_running:
             try:
                 # 每隔3秒处理一批请求
-                await asyncio.sleep(3.0)
+                await asyncio.sleep(GLOBAL_CONFIG.get('queue_worker_sleep_time', 1))
                 
                 # 收集所有可用的请求
                 requests_to_process = []

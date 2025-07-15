@@ -35,4 +35,5 @@ GLOBAL_CONFIG = {
     
     # 队列监控配置
     "queue_monitor_interval": 5,  # 队列监控间隔（秒）
+    "queue_worker_sleep_time": 1,  # 队列列表睡眠时间（秒）
 }
