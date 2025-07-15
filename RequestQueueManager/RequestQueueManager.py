@@ -107,9 +107,6 @@ class RequestQueueManager:
         # 用于跟踪已提交的request_id，避免重复
         self._submitted_request_ids = set()
 
-        # 优先级队列控制开关
-        self._skip_queue_length_check = False  # 是否跳过队列长度检查
-
     def _setup_logger(self):
         """设置日志记录器"""
         logger = logging.getLogger("RequestQueueManager")
@@ -370,11 +367,6 @@ class RequestQueueManager:
                 # 数字越小的优先级越高，但不会直接插到所有低优先级请求的前面
                 # 而是根据优先级差值计算允许的前进位置数
                 async with self.priority_queue_lock:
-                    # 如果队列从空变为有请求，重置跳过开关
-                    if len(self.priority_queue_list) == 0:
-                        self._skip_queue_length_check = False
-                        self.logger.debug("队列从空变为有请求，重置跳过开关")
-                    
                     if len(self.priority_distribution_cache) == 0:
                         # 缓存为空，直接插入到末尾
                         insert_pos = len(self.priority_queue_list)
@@ -502,87 +494,19 @@ class RequestQueueManager:
             return None
 
     async def _get_priority_request(self) -> Optional[QueuedRequest]:
-        """部分优先级策略：从列表头部取出请求，实现队列堆积逻辑"""
+        """部分优先级策略：从列表头部取出请求"""
         async with self.priority_queue_lock:
-            queue_size = len(self.priority_queue_list)
-            
-            # 如果队列为空，返回None
-            if queue_size == 0:
-                return None
-            
-            # 如果已经跳过队列长度检查，直接取出第一个
-            if self._skip_queue_length_check:
-                request = self.priority_queue_list.pop(0)
-                
-                # 更新优先级分布缓存（减量更新）
-                if request.priority in self.priority_distribution_cache:
-                    self.priority_distribution_cache[request.priority] -= 1
-                    if self.priority_distribution_cache[request.priority] <= 0:
-                        del self.priority_distribution_cache[request.priority]
-                
-                self.logger.info(f"跳过长度检查取出请求 {request.request_id} (priority={request.priority}), "
-                               f"队列长度: {queue_size} -> {len(self.priority_queue_list)}")
-                return request
-            
-            # 如果队列长度超过10个，直接取出第一个
-            if queue_size > 10:
-                request = self.priority_queue_list.pop(0)
-                
-                # 更新优先级分布缓存（减量更新）
-                if request.priority in self.priority_distribution_cache:
-                    self.priority_distribution_cache[request.priority] -= 1
-                    if self.priority_distribution_cache[request.priority] <= 0:
-                        del self.priority_distribution_cache[request.priority]
-                
-                self.logger.info(f"取出请求 {request.request_id} (priority={request.priority}), "
-                               f"队列长度: {queue_size} -> {len(self.priority_queue_list)}")
-                return request
-            
-            # 如果队列长度小于等于10个，等待3秒后直接取出第一个，并设置跳过开关
-            try:
-                # 等待最多3秒，看是否有新请求加入
-                await asyncio.wait_for(self._wait_for_new_request(), timeout=3.0)
-                # 3秒后直接取出第一个请求，并设置跳过开关
-                request = self.priority_queue_list.pop(0)
-                
-                # 更新优先级分布缓存（减量更新）
-                if request.priority in self.priority_distribution_cache:
-                    self.priority_distribution_cache[request.priority] -= 1
-                    if self.priority_distribution_cache[request.priority] <= 0:
-                        del self.priority_distribution_cache[request.priority]
-                
-                # 设置跳过开关，后续不再检查队列长度
-                self._skip_queue_length_check = True
-                
-                self.logger.info(f"3秒超时后取出请求 {request.request_id} (priority={request.priority}), "
-                               f"队列长度: {queue_size} -> {len(self.priority_queue_list)}, 设置跳过开关")
-                return request
-                    
-            except asyncio.TimeoutError:
-                # 3秒超时，取出第一个请求，并设置跳过开关
-                request = self.priority_queue_list.pop(0)
-                
-                # 更新优先级分布缓存（减量更新）
-                if request.priority in self.priority_distribution_cache:
-                    self.priority_distribution_cache[request.priority] -= 1
-                    if self.priority_distribution_cache[request.priority] <= 0:
-                        del self.priority_distribution_cache[request.priority]
-                
-                # 设置跳过开关，后续不再检查队列长度
-                self._skip_queue_length_check = True
-                
-                self.logger.info(f"3秒超时后取出请求 {request.request_id} (priority={request.priority}), "
-                               f"队列长度: {queue_size} -> {len(self.priority_queue_list)}, 设置跳过开关")
-                return request
+            if self.priority_queue_list:
+                request = self.priority_queue_list.pop(0)  # 从头部取出（FIFO基础上的部分优先级）
 
-    async def _wait_for_new_request(self):
-        """等待新请求加入队列的辅助方法"""
-        # 记录当前队列长度
-        initial_size = len(self.priority_queue_list)
-        
-        # 等待队列长度发生变化
-        while len(self.priority_queue_list) == initial_size:
-            await asyncio.sleep(0.1)
+                # 更新优先级分布缓存（减量更新）
+                if request.priority in self.priority_distribution_cache:
+                    self.priority_distribution_cache[request.priority] -= 1
+                    if self.priority_distribution_cache[request.priority] <= 0:
+                        del self.priority_distribution_cache[request.priority]
+
+                return request
+            return None
 
     async def _get_round_robin_request(self) -> Optional[QueuedRequest]:
         """轮询策略：轮流处理不同客户端的请求"""
@@ -801,43 +725,67 @@ class RequestQueueManager:
                 self.logger.info("Queue manager processing stopped")
 
     async def _worker(self, worker_name: str):
-        """工作协程 - 从队列中取出请求进行处理"""
-        self.logger.info(f"Worker {worker_name} started")
+        """工作协程 - 每隔3秒取出所有请求并依次处理"""
+        self.logger.info(f"Worker {worker_name} started (batch mode: 3s interval)")
 
         consecutive_empty_cycles = 0
         max_empty_cycles = 1200  # 120秒无请求后记录警告，但不退出
 
         while self.workers_running:
             try:
-                # 获取下一个请求
-                request = await self._get_next_request()
+                # 每隔3秒处理一批请求
+                await asyncio.sleep(3.0)
                 
-                if request is None:
+                # 收集所有可用的请求
+                requests_to_process = []
+                
+                # 先计算有多少个请求
+                normal_queue_size = self.request_queue.qsize()
+                priority_queue_size = len(self.priority_queue_list)
+                total_available = normal_queue_size + priority_queue_size
+                
+                if total_available == 0:
                     consecutive_empty_cycles += 1
                     if consecutive_empty_cycles >= max_empty_cycles:
-                        self.logger.warning(f"Worker {worker_name}: No requests for {max_empty_cycles * 0.1:.1f} seconds")
+                        self.logger.warning(f"Worker {worker_name}: No requests for {max_empty_cycles * 3:.1f} seconds")
                         consecutive_empty_cycles = 0
-                    await asyncio.sleep(0.1)
+                    continue
+                
+                # 从队列中取出所有请求
+                for _ in range(total_available):
+                    request = await self._get_next_request()
+                    if request is None:
+                        break
+                    requests_to_process.append(request)
+                
+                # 如果没有请求，继续下一轮
+                if not requests_to_process:
+                    consecutive_empty_cycles += 1
+                    if consecutive_empty_cycles >= max_empty_cycles:
+                        self.logger.warning(f"Worker {worker_name}: No requests for {max_empty_cycles * 3:.1f} seconds")
+                        consecutive_empty_cycles = 0
                     continue
                 
                 # 重置空循环计数器
                 consecutive_empty_cycles = 0
-                
-                # 处理单个请求
-                self.logger.debug(f"Worker {worker_name}: Processing request {request.request_id}")
-                
-                # 创建异步处理任务
-                task = asyncio.create_task(
-                    self._process_request_async(request, worker_name)
-                )
                 
                 # 记录处理信息
                 normal_queue_size = self.request_queue.qsize()
                 priority_queue_size = len(self.priority_queue_list)
                 total_pending = normal_queue_size + priority_queue_size
                 
-                self.logger.info(f"Worker {worker_name}: Processing request {request.request_id} "
-                               f"(priority={request.priority}, 队列总长度: {total_pending})")
+                self.logger.info(f"Worker {worker_name}: Processing {len(requests_to_process)} requests "
+                               f"(队列总长度: {total_pending})")
+                
+                # 依次处理每个请求
+                for request in requests_to_process:
+                    # 创建异步处理任务
+                    task = asyncio.create_task(
+                        self._process_request_async(request, worker_name)
+                    )
+                    
+                    self.logger.debug(f"Worker {worker_name}: Started processing request {request.request_id} "
+                                   f"(priority={request.priority})")
                 
             except Exception as e:
                 self.logger.error(f"Worker {worker_name} error: {str(e)}")
