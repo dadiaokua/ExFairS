@@ -92,6 +92,8 @@ class RequestQueueManager:
         # 部分优先级配置
         self.priority_insert_multiplier = 1  # 优先级倍数，优先级N可以往前插N*multiplier个位置
         self.max_priority_positions = 100  # 最大优先级插入位置限制
+        self.priority_delay_enabled = True  # 是否启用低优先级延迟
+        self.max_priority_delay = 10  # 最大延迟秒数
 
         # 优化：维护优先级分布的缓存，避免每次重新计算
         self.priority_distribution_cache = {}  # {priority: count}
@@ -144,16 +146,22 @@ class RequestQueueManager:
         """设置OpenAI客户端"""
         self.openai_client = client
 
-    def configure_partial_priority(self, insert_multiplier: int = 3, max_positions: int = 20):
+    def configure_partial_priority(self, insert_multiplier: int = 3, max_positions: int = 20, 
+                                 delay_enabled: bool = True, max_delay: int = 10):
         """配置部分优先级参数
         
         Args:
             insert_multiplier: 优先级倍数，优先级N可以往前插N*multiplier个位置
             max_positions: 最大优先级插入位置限制
+            delay_enabled: 是否启用低优先级延迟
+            max_delay: 最大延迟秒数
         """
         self.priority_insert_multiplier = insert_multiplier
         self.max_priority_positions = max_positions
-        self.logger.info(f"Configured partial priority: multiplier={insert_multiplier}, max_positions={max_positions}")
+        self.priority_delay_enabled = delay_enabled
+        self.max_priority_delay = max_delay
+        self.logger.info(f"Configured partial priority: multiplier={insert_multiplier}, max_positions={max_positions}, "
+                        f"delay_enabled={delay_enabled}, max_delay={max_delay}")
 
     async def register_client(self, client_id: str, client_type: str = "unknown"):
         """注册客户端"""
@@ -366,6 +374,33 @@ class RequestQueueManager:
                 # 部分优先级策略：根据优先级在整个缓存中的排名位置来决定插入策略
                 # 数字越小的优先级越高，但不会直接插到所有低优先级请求的前面
                 # 而是根据优先级差值计算允许的前进位置数
+                
+                # 低优先级请求延迟插入队列
+                if self.priority_delay_enabled and request.priority > 0:
+                    # 计算延迟时间：根据优先级在系统中的相对位置
+                    # 获取当前系统中所有优先级
+                    async with self.priority_queue_lock:
+                        all_priorities = sorted(self.priority_distribution_cache.keys())
+                        if len(all_priorities) > 0:
+                            # 计算当前请求的优先级排名比例
+                            higher_priority_count = len([p for p in all_priorities if p < request.priority])
+                            total_priority_levels = len(all_priorities)
+                            priority_rank_ratio = higher_priority_count / total_priority_levels
+                            
+                            # 根据排名比例计算延迟：排名越低（ratio越大），延迟越长
+                            # 排名比例0-1，转换为延迟0-max_delay秒
+                            delay_seconds = min(priority_rank_ratio * self.max_priority_delay, self.max_priority_delay)
+                            
+                            self.logger.info(f"低优先级请求 {request.request_id} (priority={request.priority}) "
+                                           f"排名比例={priority_rank_ratio:.3f}, 延迟 {delay_seconds:.1f} 秒后插入队列")
+                        else:
+                            # 如果系统中没有其他优先级，使用默认延迟
+                            delay_seconds = min(request.priority, self.max_priority_delay)
+                            self.logger.info(f"低优先级请求 {request.request_id} (priority={request.priority}) "
+                                           f"系统无其他优先级，延迟 {delay_seconds} 秒后插入队列")
+                    
+                    await asyncio.sleep(delay_seconds)
+                
                 async with self.priority_queue_lock:
                     if len(self.priority_distribution_cache) == 0:
                         # 缓存为空，直接插入到末尾

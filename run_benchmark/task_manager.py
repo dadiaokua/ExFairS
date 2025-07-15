@@ -76,7 +76,12 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
         # 配置队列管理器
         if strategy == QueueStrategy.PRIORITY:
             # 配置部分优先级参数
-            queue_manager.configure_partial_priority(insert_multiplier=2, max_positions=50)
+            queue_manager.configure_partial_priority(
+                insert_multiplier=2, 
+                max_positions=50,
+                delay_enabled=True,
+                max_delay=5  # 最大延迟5秒
+            )
         
         # 设置OpenAI客户端
         queue_manager.set_openai_client(openAI_client)
