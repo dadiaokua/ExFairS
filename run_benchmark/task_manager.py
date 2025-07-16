@@ -79,8 +79,8 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
             queue_manager.configure_partial_priority(
                 insert_multiplier=2, 
                 max_positions=50,
-                delay_enabled=True,
-                max_delay=5  # 最大延迟5秒
+                delay_enabled=False,  # 禁用延迟
+                max_delay=0  # 设置最大延迟为0
             )
         
         # 设置OpenAI客户端

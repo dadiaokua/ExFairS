@@ -22,6 +22,7 @@ GLOBAL_CONFIG = {
     "prompt_max_len": 10000,
     "request_model_name": "",
     "buffer_ratio": 0.2,
+    "request_timeout": 60,  # 增加请求超时时间到60秒
     
     # AsyncLLMEngine采样参数
     "sampling_temperature": 0.7,
@@ -35,5 +36,5 @@ GLOBAL_CONFIG = {
     
     # 队列监控配置
     "queue_monitor_interval": 5,  # 队列监控间隔（秒）
-    "queue_worker_sleep_time": 2,  # 队列列表睡眠时间（秒）
+    "queue_worker_sleep_time": 1,  # 队列列表睡眠时间（秒）
 }
