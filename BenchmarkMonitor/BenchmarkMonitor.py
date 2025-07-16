@@ -247,7 +247,7 @@ class ExperimentMonitor:
             self.tmp_results = []
 
             # 打印详细的时间统计
-            self._print_timing_stats()
+            # self._print_timing_stats()
             
         except Exception as e:
             self.logger.error(f"Error in _process_complete_round: {str(e)}", exc_info=True)
