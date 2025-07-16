@@ -106,14 +106,35 @@ async def make_request_direct_engine(engine, experiment, request, start_time=Non
         # 发送请求到引擎 - 注意这里返回的是异步生成器
         request_generator = engine.generate(request, sampling_params, request_id)
 
-        # 使用async for迭代异步生成器获取最终结果
+        # 使用async for迭代异步生成器获取最终结果，并设置超时
         request_output = None
         first_chunk_time = None
 
-        async for output_chunk in request_generator:
-            if first_chunk_time is None:
-                first_chunk_time = time.time()
-            request_output = output_chunk  # 保留最后一个输出作为最终结果
+        # 设置超时时间，使用experiment的request_timeout
+        timeout_seconds = getattr(experiment, 'request_timeout', 30.0)
+        
+        # 创建一个异步函数来处理生成器迭代
+        async def process_generator():
+            nonlocal request_output, first_chunk_time
+            async for output_chunk in request_generator:
+                if first_chunk_time is None:
+                    first_chunk_time = time.time()
+                request_output = output_chunk  # 保留最后一个输出作为最终结果
+        
+        try:
+            # 使用asyncio.wait_for设置超时
+            await asyncio.wait_for(process_generator(), timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            experiment.logger.warning(f"Client {client_id}: 请求 {request_id} 超时 ({timeout_seconds}s)")
+            if hasattr(experiment, 'client') and hasattr(experiment.client, 'unregister_request_id'):
+                experiment.client.unregister_request_id(request_id)
+            return None
+        except asyncio.CancelledError:
+            # 请求被取消，这是正常的（实验结束时）
+            experiment.logger.debug(f"Client {client_id}: 请求 {request_id} 被取消 (实验结束时的正常清理)")
+            if hasattr(experiment, 'client') and hasattr(experiment.client, 'unregister_request_id'):
+                experiment.client.unregister_request_id(request_id)
+            return None
 
         end_time = time.time()
 
@@ -181,7 +202,7 @@ async def make_request_direct_engine(engine, experiment, request, start_time=Non
             experiment.client.unregister_request_id(request_id)
 
         experiment.logger.warning(
-            f"Client {experiment.client_id} request timed out after {end_time - start_time} seconds (Total timeouts: {experiment.timeout_count})")
+            f"Client {client_id}: 请求 {request_id} 超时 ({end_time - start_time:.3f}s) (Total timeouts: {experiment.timeout_count})")
 
         return None
     except Exception as e:
@@ -200,10 +221,12 @@ async def make_request_http_client(client, experiment, request, start_time=None,
     if start_time is None:
         start_time = time.time()
 
+    # 获取客户端ID
+    client_id = getattr(experiment.client, 'client_id', 'unknown_client')
+    worker_id = getattr(experiment, 'worker_id', 'unknown_worker')
+
     # 如果没有提供request_id，生成一个唯一的
     if request_id is None:
-        client_id = getattr(experiment.client, 'client_id', 'unknown_client')
-        worker_id = getattr(experiment, 'worker_id', 'unknown_worker')
         request_id = generate_unique_request_id(client_id, worker_id)
 
     try:
@@ -250,7 +273,7 @@ async def make_request_http_client(client, experiment, request, start_time=None,
             experiment.client.unregister_request_id(request_id)
 
         experiment.logger.warning(
-            f"Client {experiment.client_id} request timed out after {end_time - start_time} seconds (Total timeouts: {experiment.timeout_count})")
+            f"Client {client_id}: 请求 {request_id} 超时 ({end_time - start_time:.3f}s) (Total timeouts: {experiment.timeout_count})")
 
         return None
     except Exception as e:
@@ -443,11 +466,6 @@ async def worker_with_queue(experiment, queue_manager, semaphore, results, worke
                         new_total = tokens_counter.add(output_tokens)
                         collected_results.append(result)
                         completed += 1
-                        
-                        # 如果超过限制，记录日志
-                        if hasattr(experiment, 'max_tokens') and new_total >= experiment.max_tokens:
-                            experiment.logger.info(
-                                f"Worker {worker_id} reached max tokens after processing: {new_total}/{experiment.max_tokens}")
                     
                     completed_tasks += 1
                 except Exception as e:
@@ -463,11 +481,10 @@ async def worker_with_queue(experiment, queue_manager, semaphore, results, worke
     
     # 收集完成后，检查哪些请求没有被成功收集
     for request_info in submitted_requests:
-        if request_info["status"] in ["timeout", "failed"] or "end_time" not in request_info:
-            # 如果没有end_time，说明请求未完成，设置状态和结束时间
-            if "end_time" not in request_info:
-                request_info["status"] = "uncompleted"
-                request_info["end_time"] = time.time()
+        # 如果没有end_time，说明请求未完成，设置状态和结束时间
+        if "end_time" not in request_info:
+            request_info["status"] = "uncompleted"
+            request_info["end_time"] = time.time()
 
     collection_time = time.time() - start_collection_time
     experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: Collection phase completed in {collection_time:.2f}s, collected {len(collected_results)} results")
@@ -514,35 +531,6 @@ async def worker_with_queue(experiment, queue_manager, semaphore, results, worke
         f"Client {main_client_id} Worker {worker_id}: Total elapsed time: {total_elapsed_time:.2f} seconds, Round time: {experiment.round_time:.2f} seconds")
 
     return completed, drift_time, request_count
-
-
-async def make_request_via_queue_with_response(queue_manager, client_id: str, worker_id: str,
-                                               request_content: str, experiment, priority: int = 0, request_id: str = None) -> Any:
-    """通过队列管理器发送请求并等待响应 - 用于需要响应的场景"""
-    # 如果没有提供request_id，生成一个唯一的
-    if request_id is None:
-        request_id = generate_unique_request_id(client_id, worker_id)
-
-    try:
-        # 提交请求到队列
-        submitted_request_id = await queue_manager.submit_request(
-            client_id=client_id,
-            worker_id=worker_id,
-            request_content=request_content,
-            experiment=experiment,
-            priority=priority,
-            start_time=time.time(),
-            request_id=request_id  # 传递预生成的request_id
-        )
-
-        # 等待响应
-        result = await queue_manager.get_response(client_id, timeout=1000)
-
-        return result
-
-    except Exception as e:
-        experiment.logger.error(f"Error making request via queue: {e}")
-        return None
 
 
 def calculate_all_request_times(experiment, qmp_per_worker):
@@ -829,22 +817,12 @@ async def process_request(openai, experiment, request, worker_id, results, semap
 
     async with semaphore:
         try:
-            # 检查当前token总数是否超限
-            if hasattr(experiment, 'max_tokens') and tokens_counter.value >= experiment.max_tokens:
-                experiment.logger.info(f"Worker {worker_id} reached max tokens limit ({experiment.max_tokens})")
-                return
-
             result = await make_request(openai, experiment, request, request_id=request_id)
             if result:
                 output_tokens = result[0]  # 第一个元素是output_tokens
                 # 原子性地更新token计数
                 new_total = tokens_counter.add(output_tokens)
                 results.append(result)
-
-                # 如果超过限制，记录日志
-                if hasattr(experiment, 'max_tokens') and new_total >= experiment.max_tokens:
-                    experiment.logger.info(
-                        f"Worker {worker_id} reached max tokens after processing: {new_total}/{experiment.max_tokens}")
 
         except Exception as e:
             logging.error(

@@ -165,7 +165,7 @@ def print_benchmark_config(args, logger):
     logger.info(f"MIX QPM: {args.mix_qpm}")
     logger.info(f"Short Clients: {args.short_clients}")
     logger.info(f"Long Clients: {args.long_clients}")
-    logger.info(f"MIX Clients: {args.mix_clients}")
+    logger.info(f"Mix Clients: {args.mix_clients}")
     logger.info(f"Short Client SLO: {args.short_clients_slo}")
     logger.info(f"Long Client SLO: {args.long_clients_slo}")
     logger.info(f"MIX Client SLO: {args.mix_clients_slo}")
