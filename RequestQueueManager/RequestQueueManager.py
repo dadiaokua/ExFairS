@@ -228,30 +228,44 @@ class RequestQueueManager:
 
                 # 按客户端分组统计队列中的请求
                 client_queue_stats = {}
-                for request in priority_queue_snapshot:
-                    client_id = request.client_id
-                    if client_id not in client_queue_stats:
-                        client_queue_stats[client_id] = {
-                            'total_in_queue': 0,
-                            'priority_distribution': {},
-                            'requests': []
-                        }
+                
+                # 根据策略统计队列中的请求
+                if self.strategy == QueueStrategy.ROUND_ROBIN:
+                    # 轮询策略：统计客户端队列中的请求
+                    for client_id, client_queue in self.client_queues.items():
+                        queue_size = client_queue.qsize()
+                        if queue_size > 0:
+                            client_queue_stats[client_id] = {
+                                'total_in_queue': queue_size,
+                                'priority_distribution': {},  # 轮询策略没有优先级
+                                'requests': []
+                            }
+                else:
+                    # 其他策略：统计优先级队列中的请求
+                    for request in priority_queue_snapshot:
+                        client_id = request.client_id
+                        if client_id not in client_queue_stats:
+                            client_queue_stats[client_id] = {
+                                'total_in_queue': 0,
+                                'priority_distribution': {},
+                                'requests': []
+                            }
 
-                    client_queue_stats[client_id]['total_in_queue'] += 1
-                    priority = request.priority
-                    if priority not in client_queue_stats[client_id]['priority_distribution']:
-                        client_queue_stats[client_id]['priority_distribution'][priority] = 0
-                    client_queue_stats[client_id]['priority_distribution'][priority] += 1
+                        client_queue_stats[client_id]['total_in_queue'] += 1
+                        priority = request.priority
+                        if priority not in client_queue_stats[client_id]['priority_distribution']:
+                            client_queue_stats[client_id]['priority_distribution'][priority] = 0
+                        client_queue_stats[client_id]['priority_distribution'][priority] += 1
 
-                    # 记录请求详情
-                    wait_time = time.time() - request.submit_time
-                    client_queue_stats[client_id]['requests'].append({
-                        'request_id': request.request_id,
-                        'priority': priority,
-                        'wait_time': round(wait_time, 2),
-                        'submit_time': request.submit_time,
-                        'client_type': getattr(request, 'client_type', 'unknown')
-                    })
+                        # 记录请求详情
+                        wait_time = time.time() - request.submit_time
+                        client_queue_stats[client_id]['requests'].append({
+                            'request_id': request.request_id,
+                            'priority': priority,
+                            'wait_time': round(wait_time, 2),
+                            'submit_time': request.submit_time,
+                            'client_type': getattr(request, 'client_type', 'unknown')
+                        })
 
                 # 统计客户端处理情况
                 client_processing_stats = {}
@@ -277,7 +291,12 @@ class RequestQueueManager:
                     }
 
                 # 计算总的待处理请求数
-                total_pending = normal_queue_size + priority_queue_size
+                if self.strategy == QueueStrategy.ROUND_ROBIN:
+                    # 轮询策略：计算所有客户端队列中的请求总数
+                    total_pending = sum(self.client_queues[client_id].qsize() for client_id in self.client_queues)
+                else:
+                    # 其他策略：使用普通队列和优先级队列
+                    total_pending = normal_queue_size + priority_queue_size
 
                 # 创建监控快照
                 snapshot = {
@@ -568,13 +587,14 @@ class RequestQueueManager:
                 try:
                     request = await asyncio.wait_for(
                         self.client_queues[target_client_id].get(), 
-                        timeout=0.01
+                        timeout=0.1  # 增加超时时间到0.1秒
                     )
                     self.logger.debug(f"Round-robin selected request from client {target_client_id} "
                                      f"(client index: {(self.round_robin_index - 1) % len(all_clients)})")
                     return request
                 except asyncio.TimeoutError:
                     # 队列在获取时变空，继续下一个客户端
+                    self.logger.debug(f"Timeout getting request from client {target_client_id}, trying next client")
                     continue
             # 如果该客户端没有请求，直接跳到下一个客户端（保持轮询顺序）
         
@@ -760,8 +780,8 @@ class RequestQueueManager:
                 self.logger.info("Queue manager processing stopped")
 
     async def _worker(self, worker_name: str):
-        """工作协程 - 每隔3秒取出所有请求并依次处理"""
-        self.logger.info(f"Worker {worker_name} started (batch mode: 3s interval)")
+        """工作协程 - 每隔1秒取出所有请求并依次处理"""
+        self.logger.info(f"Worker {worker_name} started (batch mode: 1s interval)")
 
         consecutive_empty_cycles = 0
         max_empty_cycles = 1200  # 120秒无请求后记录警告，但不退出
@@ -774,15 +794,20 @@ class RequestQueueManager:
                 # 收集所有可用的请求
                 requests_to_process = []
                 
-                # 先计算有多少个请求
-                normal_queue_size = self.request_queue.qsize()
-                priority_queue_size = len(self.priority_queue_list)
-                total_available = normal_queue_size + priority_queue_size
+                # 根据策略计算可用的请求数量
+                if self.strategy == QueueStrategy.ROUND_ROBIN:
+                    # 轮询策略：计算所有客户端队列中的请求总数
+                    total_available = sum(self.client_queues[client_id].qsize() for client_id in self.client_queues)
+                else:
+                    # 其他策略：使用普通队列和优先级队列
+                    normal_queue_size = self.request_queue.qsize()
+                    priority_queue_size = len(self.priority_queue_list)
+                    total_available = normal_queue_size + priority_queue_size
                 
                 if total_available == 0:
                     consecutive_empty_cycles += 1
                     if consecutive_empty_cycles >= max_empty_cycles:
-                        self.logger.warning(f"Worker {worker_name}: No requests for {max_empty_cycles * 3:.1f} seconds")
+                        self.logger.warning(f"Worker {worker_name}: No requests for {max_empty_cycles * 1:.1f} seconds")
                         consecutive_empty_cycles = 0
                     continue
                 
@@ -797,7 +822,7 @@ class RequestQueueManager:
                 if not requests_to_process:
                     consecutive_empty_cycles += 1
                     if consecutive_empty_cycles >= max_empty_cycles:
-                        self.logger.warning(f"Worker {worker_name}: No requests for {max_empty_cycles * 3:.1f} seconds")
+                        self.logger.warning(f"Worker {worker_name}: No requests for {max_empty_cycles * 1:.1f} seconds")
                         consecutive_empty_cycles = 0
                     continue
                 
@@ -805,22 +830,41 @@ class RequestQueueManager:
                 consecutive_empty_cycles = 0
                 
                 # 记录处理信息
-                normal_queue_size = self.request_queue.qsize()
-                priority_queue_size = len(self.priority_queue_list)
-                total_pending = normal_queue_size + priority_queue_size
+                if self.strategy == QueueStrategy.ROUND_ROBIN:
+                    # 轮询策略：计算所有客户端队列中的请求总数
+                    total_pending = sum(self.client_queues[client_id].qsize() for client_id in self.client_queues)
+                else:
+                    # 其他策略：使用普通队列和优先级队列
+                    normal_queue_size = self.request_queue.qsize()
+                    priority_queue_size = len(self.priority_queue_list)
+                    total_pending = normal_queue_size + priority_queue_size
                 
                 self.logger.info(f"Worker {worker_name}: Processing {len(requests_to_process)} requests "
                                f"(队列总长度: {total_pending})")
                 
-                # 依次处理每个请求
+                # 创建所有异步处理任务
+                tasks = []
                 for request in requests_to_process:
-                    # 创建异步处理任务
                     task = asyncio.create_task(
                         self._process_request_async(request, worker_name)
                     )
-                    
+                    tasks.append(task)
                     self.logger.debug(f"Worker {worker_name}: Started processing request {request.request_id} "
                                    f"(priority={request.priority})")
+                
+                # 等待所有任务完成（但不阻塞worker循环）
+                if tasks:
+                    # 使用asyncio.gather等待所有任务完成，但设置超时
+                    try:
+                        await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=60.0)
+                    except asyncio.TimeoutError:
+                        self.logger.warning(f"Worker {worker_name}: Some tasks took longer than 60s to complete")
+                        # 取消未完成的任务
+                        for task in tasks:
+                            if not task.done():
+                                task.cancel()
+                        # 等待取消完成
+                        await asyncio.gather(*tasks, return_exceptions=True)
                 
             except Exception as e:
                 self.logger.error(f"Worker {worker_name} error: {str(e)}")
