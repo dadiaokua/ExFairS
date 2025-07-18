@@ -67,12 +67,12 @@ fi
 
 # ========== vLLM引擎参数 ==========
 START_ENGINE="true"
-MODEL_PATH="/home/llm/model_hub/Qwen2.5-32B-Instruct"
+MODEL_PATH="/home/llm/model_hub/Llama-3.1-8B"
 TENSOR_PARALLEL_SIZE=8
 PIPELINE_PARALLEL_SIZE=1
-GPU_MEMORY_UTILIZATION=1
+GPU_MEMORY_UTILIZATION=0.8
 MAX_MODEL_LEN=8124
-MAX_NUM_SEQS=256
+MAX_NUM_SEQS=128
 MAX_NUM_BATCHED_TOKENS=65536
 SWAP_SPACE=0
 DEVICE="cuda"
@@ -93,34 +93,34 @@ REMOTE_PORT="10085"
 
 # ========== 请求配置参数 ==========
 DISTRIBUTION="normal"
-SHORT_QPM="10 10 10 20 20 20"
+SHORT_QPM="30 30"
 SHORT_CLIENT_QPM_RATIO=1
-LONG_QPM="10 10 20 20"
+LONG_QPM="30 30"
 LONG_CLIENT_QPM_RATIO=1
-MIX_QPM="10 10 20 20 30 30 50"
+MIX_QPM="5 5 5 5 5 5 5 5 5 5 8 8 8 8 8 12 12 12 12 15"
 MIX_CLIENT_QPM_RATIO=1
 
 # ========== 客户端配置参数 ==========
 SHORT_CLIENTS=0
-SHORT_CLIENTS_SLO="4 5 6 7 8 9"
+SHORT_CLIENTS_SLO="15 20"
 LONG_CLIENTS=0
-LONG_CLIENTS_SLO="6 7 8 9"
-MIX_CLIENTS=7
-MIX_CLIENTS_SLO="10 15 20 25 30 35 40"
+LONG_CLIENTS_SLO="15 20"
+MIX_CLIENTS=20
+MIX_CLIENTS_SLO="5 5 8 8 8 10 10 10 12 12 12 12 12 15 15 15 15 20 20 20"
 
 # ========== 并发和性能参数 ==========
 CONCURRENCY=1
 NUM_REQUESTS=100
-REQUEST_TIMEOUT=30
+REQUEST_TIMEOUT=20
 SLEEP_TIME=60
 
 # ========== 实验配置参数 ==========
-ROUND_NUM=20
-ROUND_TIME=300
+ROUND_NUM=10
+ROUND_TIME=60
 USE_TIME_DATA=0
 
 # ========== 模型和tokenizer参数 ==========
-TOKENIZER_PATH="/home/llm/model_hub/Qwen2.5-32B-Instruct"
+TOKENIZER_PATH="/home/llm/model_hub/Llama-3.1-8B"
 REQUEST_MODEL_NAME="Qwen2.5-32B"
 
 # ========== 验证实验类型 ==========
@@ -296,8 +296,8 @@ for i in "${!EXP_NAMES[@]}"; do
     if [ $exp_index -lt $total_experiments ]; then
         next_exp="${EXP_NAMES[i+1]}"
         echo ""
-        echo "⏱️ 等待 300 秒后开始下一个实验..."
-        sleep 300
+        echo "⏱️ 等待 180 秒后开始下一个实验..."
+        sleep 180
         echo "📋 准备开始下一个实验: $((exp_index+1))/$total_experiments - $next_exp"
         echo "=========================================="
     fi
