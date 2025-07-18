@@ -174,14 +174,15 @@ class QueueExperiment(BaseExperiment):
         return await self.calculate_results(sum(completed_requests), sum(total_requests))
 
     async def cleanup(self):
-        """清理资源"""
+        """清理资源 - 重置统计但保持队列管理器运行"""
         self.logger.info("Starting queue experiment cleanup")
         
+        # 重置队列管理器的统计信息，但不停止工作线程
         if self.queue_manager and self.queue_manager.is_running:
-            await self.queue_manager.cleanup()
-            self.logger.info("Queue manager cleaned up")
-            
-        # 取消队列处理任务（如果存在）
+            await self.queue_manager.reset_statistics()
+            self.logger.info("Queue manager statistics reset")
+        
+        # 取消队列处理任务（如果存在且是本实验启动的）
         if hasattr(self, 'queue_processing_task') and not self.queue_processing_task.done():
             self.logger.info("Cancelling queue processing task")
             self.queue_processing_task.cancel()
@@ -191,16 +192,22 @@ class QueueExperiment(BaseExperiment):
                 self.logger.info("Queue processing task cancelled successfully")
             except Exception as e:
                 self.logger.warning(f"Error while cancelling queue processing task: {e}")
+                
+        self.logger.info("Queue experiment cleanup completed (queue manager remains running with reset statistics)")
 
     async def end(self):
-        """结束实验"""
+        """结束实验 - 谨慎处理共享队列管理器"""
         self.logger.info("Ending queue experiment")
         
+        # 注意：队列管理器是共享的，只有在确定所有实验都结束时才停止
+        # 这里我们只记录，不主动停止
         if self.queue_manager and self.queue_manager.is_running:
-            await self.queue_manager.stop()
-            self.logger.info("Queue manager stopped")
+            self.logger.info("Queue manager is still running (shared resource, not stopping)")
+            # 注释掉自动停止，改为由主程序控制
+            # await self.queue_manager.stop()
+            # self.logger.info("Queue manager stopped")
             
-        # 取消队列处理任务（如果存在）
+        # 取消队列处理任务（如果存在且是本实验启动的）
         if hasattr(self, 'queue_processing_task') and not self.queue_processing_task.done():
             self.logger.info("Cancelling queue processing task in end()")
             self.queue_processing_task.cancel()
@@ -210,6 +217,8 @@ class QueueExperiment(BaseExperiment):
                 self.logger.info("Queue processing task cancelled successfully in end()")
             except Exception as e:
                 self.logger.warning(f"Error while cancelling queue processing task in end(): {e}")
+                
+        self.logger.info("Queue experiment end completed (shared queue manager preserved)")
 
     def get_queue_statistics(self):
         """获取队列统计信息"""

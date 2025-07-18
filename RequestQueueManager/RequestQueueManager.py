@@ -1198,6 +1198,80 @@ class RequestQueueManager:
                 except Exception as send_error:
                     self.logger.error(f"Worker {worker_name}: Failed to send error result to {request.client_id}: {send_error}")
 
+    async def reset_statistics(self):
+        """重置统计信息但不停止工作线程且不清空队列"""
+        self.logger.info("Resetting queue manager statistics")
+
+        # 注意：不清空队列！因为队列中可能有其他客户端的请求
+        # 只重置统计计数器
+
+        # 重置全局统计信息
+        self.total_requests_processed = 0
+        # 注意：不重置 start_time，保持启动时间不变
+
+        # 重置所有客户端的token统计
+        for client_id in self.client_token_stats:
+            self.client_token_stats[client_id] = {
+                'total_input_tokens': 0,
+                'total_output_tokens': 0,
+                'actual_tokens_used': 0
+            }
+
+        # 重置客户端统计（保留注册信息，只重置计数）
+        for client_id in self.client_stats:
+            self.client_stats[client_id].update({
+                'total_requests': 0,
+                'completed_requests': 0,
+                'failed_requests': 0,
+                'total_wait_time': 0
+                # 保留 'client_type' 不重置
+            })
+
+        # 重置客户端请求计数
+        for client_id in self.client_request_counts:
+            self.client_request_counts[client_id] = 0
+
+        self.logger.info("Queue manager statistics reset completed (queues preserved)")
+
+    async def cleanup(self, clear_queues=True):
+        """清理资源并停止工作线程
+        
+        Args:
+            clear_queues: 是否清空队列（默认True，用于完全清理；False用于保留其他客户端的请求）
+        """
+        self.logger.info("Cleaning up queue manager resources")
+
+        # 停止工作线程
+        self.workers_running = False
+
+        if clear_queues:
+            # 清空队列
+            queue_cleared_count = 0
+            while not self.request_queue.empty():
+                try:
+                    self.request_queue.get_nowait()
+                    queue_cleared_count += 1
+                except asyncio.QueueEmpty:
+                    break
+
+            # 清空优先级队列（使用锁保护）
+            async with self.priority_queue_lock:
+                priority_queue_cleared_count = len(self.priority_queue_list)
+                self.priority_queue_list.clear()
+                # 清空优先级分布缓存
+                self.priority_distribution_cache.clear()
+
+            # 记录清空的请求数量
+            total_cleared = queue_cleared_count + priority_queue_cleared_count
+            if total_cleared > 0:
+                self.logger.info(f"Cleared {total_cleared} requests during cleanup "
+                                 f"(queue: {queue_cleared_count}, priority: {priority_queue_cleared_count})")
+
+        # 调用统计重置
+        await self.reset_statistics()
+
+        self.logger.info("Queue manager cleanup completed")
+
     async def stop(self):
         """停止队列管理器"""
         self.logger.info("Stopping request queue manager")
@@ -1255,49 +1329,6 @@ class RequestQueueManager:
                 f"(success: {success_rate:.1f}%, avg_wait: {avg_wait:.3f}s)")
             self.logger.info(f"  Tokens - Input: {total_input}, Output: {total_output}, "
                              f"Total Used: {actual_used}")
-
-    async def cleanup(self):
-        """清理资源"""
-        self.logger.info("Cleaning up queue manager resources")
-
-        # 只停止当前实验的workers
-        self.workers_running = False
-
-        # 清空队列
-        queue_cleared_count = 0
-        while not self.request_queue.empty():
-            try:
-                self.request_queue.get_nowait()
-                queue_cleared_count += 1
-            except asyncio.QueueEmpty:
-                break
-
-        # 清空优先级队列（使用锁保护）
-        async with self.priority_queue_lock:
-            priority_queue_cleared_count = len(self.priority_queue_list)
-            self.priority_queue_list.clear()
-            # 清空优先级分布缓存
-            self.priority_distribution_cache.clear()
-
-        # 记录清空的请求数量
-        total_cleared = queue_cleared_count + priority_queue_cleared_count
-        if total_cleared > 0:
-            self.logger.info(f"Cleared {total_cleared} requests during cleanup "
-                             f"(queue: {queue_cleared_count}, priority: {priority_queue_cleared_count})")
-
-        # 重置统计信息
-        self.total_requests_processed = 0
-        self.start_time = None
-
-        # 重置所有客户端的token统计
-        for client_id in self.client_token_stats:
-            self.client_token_stats[client_id] = {
-                'total_input_tokens': 0,
-                'total_output_tokens': 0,
-                'actual_tokens_used': 0
-            }
-
-        self.logger.info("Queue manager cleanup completed")
 
     def get_active_request_ids(self, client_id: str = None) -> List[str]:
         """获取活跃的request_id列表
