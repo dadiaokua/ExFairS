@@ -82,8 +82,23 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
                 max_delay=0  # 设置最大延迟为0
             )
         
-        # 设置OpenAI客户端
-        queue_manager.set_openai_client(openAI_client)
+        # 设置OpenAI客户端（可选，作为备用）
+        if openAI_client:
+            queue_manager.set_openai_client(openAI_client)
+            logger.info(f"✓ OpenAI client set as fallback: {len(openAI_client)} clients")
+        else:
+            logger.info("No OpenAI client provided (will use vLLM engine directly)")
+        
+        # 验证处理能力
+        vllm_engine = GLOBAL_CONFIG.get('vllm_engine')
+        
+        if vllm_engine is not None:
+            logger.info("✓ vLLM engine is available for primary request processing")
+        elif queue_manager.openai_client is not None:
+            logger.info("✓ Will use OpenAI client for request processing (fallback mode)")
+        else:
+            logger.error("CRITICAL: Neither vLLM engine nor OpenAI client is available")
+            raise RuntimeError("No request processing method available")
         
         # 启动队列管理器（在后台运行）
         queue_manager_task = asyncio.create_task(queue_manager.start_processing(num_workers=5))

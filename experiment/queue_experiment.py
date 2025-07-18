@@ -6,6 +6,7 @@ from experiment.base_experiment import BaseExperiment
 from util.RequestUtil import worker_with_queue
 from RequestQueueManager.RequestQueueManager import RequestQueueManager, QueueStrategy
 
+from config.Config import GLOBAL_CONFIG
 
 class QueueExperiment(BaseExperiment):
     """
@@ -40,12 +41,22 @@ class QueueExperiment(BaseExperiment):
 
         self.logger.info(f"Setting up queue experiment with strategy: {self.queue_strategy.value}")
         
-        # 确保队列管理器有OpenAI客户端
-        if not self.queue_manager.openai_client:
-            self.logger.info("Setting OpenAI client on queue manager")
-            self.queue_manager.set_openai_client(self.openAI_client)
+        # 确保队列管理器有处理能力（OpenAI客户端或vLLM引擎）
+        vllm_engine = GLOBAL_CONFIG.get('vllm_engine')
+        
+        if vllm_engine is not None:
+            self.logger.info("✓ vLLM engine is available for request processing")
+        elif not self.queue_manager.openai_client:
+            self.logger.info("Setting OpenAI client on queue manager as fallback")
+            try:
+                self.queue_manager.set_openai_client(self.openAI_client)
+                self.logger.info(f"✓ OpenAI client successfully set as fallback: {len(self.queue_manager.openai_client)} clients")
+            except Exception as e:
+                self.logger.error(f"Failed to set OpenAI client: {e}")
+                if vllm_engine is None:
+                    raise RuntimeError("Neither vLLM engine nor OpenAI client is available")
         else:
-            self.logger.info("Queue manager already has OpenAI client")
+            self.logger.info(f"Queue manager already has OpenAI client: {len(self.queue_manager.openai_client)} clients")
 
         # 启动队列管理器（如果还没有启动）
         if not self.queue_manager.is_running:
@@ -56,11 +67,24 @@ class QueueExperiment(BaseExperiment):
             # 等待队列管理器启动并确认workers正在运行
             await asyncio.sleep(3.0)  # 增加等待时间
             
-            # 检查队列管理器状态
-            if self.queue_manager.is_running and self.queue_manager.workers_running:
-                self.logger.info("✓ Queue manager started successfully")
+            # 检查队列管理器状态 - 更宽松的检查
+            if self.queue_manager.is_running:
+                if self.queue_manager.workers_running:
+                    self.logger.info("✓ Queue manager started successfully")
+                else:
+                    # 检查是否有可用的处理方式
+                    vllm_engine = GLOBAL_CONFIG.get('vllm_engine')
+                    
+                    if vllm_engine is not None:
+                        self.logger.warning("Queue manager workers not running yet, but vLLM engine is available - continuing")
+                    elif self.queue_manager.openai_client is not None:
+                        self.logger.warning("Queue manager workers not running yet, but OpenAI client is available - continuing")
+                    else:
+                        self.logger.error(f"❌ Queue manager failed to start properly. is_running: {self.queue_manager.is_running}, workers_running: {self.queue_manager.workers_running}")
+                        self.logger.error("❌ No processing method (vLLM engine or OpenAI client) is available")
+                        raise RuntimeError("Failed to start queue manager: No processing method available")
             else:
-                self.logger.error(f"❌ Queue manager failed to start properly. is_running: {self.queue_manager.is_running}, workers_running: {self.queue_manager.workers_running}")
+                self.logger.error(f"❌ Queue manager failed to start. is_running: {self.queue_manager.is_running}")
                 raise RuntimeError("Failed to start queue manager")
         else:
             self.logger.info("Queue manager is already running")

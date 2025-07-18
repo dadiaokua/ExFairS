@@ -8,18 +8,30 @@ from util.FileSaveUtil import save_exchange_record
 
 def initialize_clients(local_port):
     """Initialize OpenAI clients based on port configuration"""
-    if isinstance(local_port, list):
-        print(f"Initializing multiple OpenAI clients:")
-        clients = []
-        for port in local_port:
-            url = f"http://localhost:{port}/v1"
-            print(f"Creating client with base_url: {url}")
-            clients.append(AsyncOpenAI(base_url=url, api_key="empty"))
-        return clients
-    else:
-        url = f"http://localhost:{local_port}/v1"
-        print(f"Initializing single OpenAI client with base_url: {url}")
-        return [AsyncOpenAI(base_url=url, api_key="empty")]
+    try:
+        if isinstance(local_port, list):
+            print(f"Initializing multiple OpenAI clients:")
+            clients = []
+            for port in local_port:
+                url = f"http://localhost:{port}/v1"
+                print(f"Creating client with base_url: {url}")
+                client = AsyncOpenAI(base_url=url, api_key="empty")
+                if client is None:
+                    raise ValueError(f"Failed to create OpenAI client for port {port}")
+                clients.append(client)
+            print(f"✓ Successfully created {len(clients)} OpenAI clients")
+            return clients
+        else:
+            url = f"http://localhost:{local_port}/v1"
+            print(f"Initializing single OpenAI client with base_url: {url}")
+            client = AsyncOpenAI(base_url=url, api_key="empty")
+            if client is None:
+                raise ValueError(f"Failed to create OpenAI client for port {local_port}")
+            print(f"✓ Successfully created 1 OpenAI client")
+            return [client]
+    except Exception as e:
+        print(f"❌ Error initializing OpenAI clients: {e}")
+        raise
 
 
 def exchange_resources(client_low_fairness_ratio, client_high_fairness_ratio, clients, exp_type):

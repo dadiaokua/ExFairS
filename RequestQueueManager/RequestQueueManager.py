@@ -144,7 +144,23 @@ class RequestQueueManager:
 
     def set_openai_client(self, client):
         """设置OpenAI客户端"""
+        if client is None:
+            self.logger.warning("OpenAI client is None, will rely on vLLM engine for processing")
+            self.openai_client = None
+            return
+        
+        if not isinstance(client, (list, tuple)):
+            # 如果不是列表或元组，尝试转换为列表
+            self.logger.debug(f"Converting single OpenAI client {type(client)} to list")
+            client = [client]
+        
+        if len(client) == 0:
+            self.logger.warning("OpenAI client list is empty, will rely on vLLM engine for processing")
+            self.openai_client = None
+            return
+        
         self.openai_client = client
+        self.logger.info(f"OpenAI client set successfully: {len(client)} clients configured")
 
     def configure_partial_priority(self, insert_multiplier: int = 3, max_positions: int = 20, 
                                  delay_enabled: bool = True, max_delay: int = 10):
@@ -775,13 +791,22 @@ class RequestQueueManager:
         """处理单个请求"""
         self.logger.debug(f"Worker {worker_name}: Starting to process request {request.request_id}")
 
-        if not self.openai_client:
-            self.logger.error("OpenAI client not set")
-            return None
+        # 检查是否有vLLM引擎（这是实际使用的处理方式）
+        from config.Config import GLOBAL_CONFIG
+        vllm_engine = GLOBAL_CONFIG.get('vllm_engine')
+        
+        if vllm_engine is None:
+            # 如果没有vLLM引擎，检查OpenAI客户端（备用方案）
+            if not self.openai_client:
+                self.logger.error("Neither vLLM engine nor OpenAI client is available")
+                return None
+            else:
+                selected_client = self.openai_client[int(worker_name.split('-')[1]) % len(self.openai_client)]
+                self.logger.debug(
+                    f"Worker {worker_name}: Using fallback OpenAI client {type(selected_client)} for request {request.request_id}")
         else:
-            selected_client = self.openai_client[int(worker_name.split('-')[1]) % len(self.openai_client)]
             self.logger.debug(
-                f"Worker {worker_name}: Selected client {type(selected_client)} for request {request.request_id}")
+                f"Worker {worker_name}: Using vLLM engine for request {request.request_id}")
 
         wait_time = time.time() - request.submit_time
         self.client_stats[request.client_id]['total_wait_time'] += wait_time
@@ -790,8 +815,9 @@ class RequestQueueManager:
         try:
             self.logger.debug(f"Worker {worker_name}: Calling make_request for {request.request_id}")
             # 调用原有的make_request函数，传递request_id
+            # make_request会自动选择使用vLLM引擎或OpenAI客户端
             result = await make_request(
-                openai=selected_client,
+                openai=self.openai_client[0] if self.openai_client else None,  # 传递一个client作为备用
                 experiment=request.experiment,
                 request=request.request_content,
                 start_time=request.start_time,
@@ -847,10 +873,17 @@ class RequestQueueManager:
                            f"max_positions: {self.max_priority_positions}, delay_enabled: {self.priority_delay_enabled}, "
                            f"max_delay: {self.max_priority_delay}s")
 
-        if self.openai_client is None:
-            self.logger.error("CRITICAL: OpenAI client is not set! Workers will not be able to process requests.")
+        # 检查可用的处理方式
+        from config.Config import GLOBAL_CONFIG
+        vllm_engine = GLOBAL_CONFIG.get('vllm_engine')
+        
+        if vllm_engine is not None:
+            self.logger.info("✓ vLLM engine is available for request processing")
+        elif self.openai_client is not None:
+            self.logger.info(f"✓ OpenAI client configured with {len(self.openai_client)} clients (fallback mode)")
         else:
-            self.logger.info(f"OpenAI client configured with {len(self.openai_client)} clients")
+            self.logger.error("CRITICAL: Neither vLLM engine nor OpenAI client is available! Workers will not be able to process requests.")
+            # 不阻止启动，让系统尝试运行，可能在运行过程中vLLM引擎会变为可用
 
         # 创建工作协程
         worker_creation_start = time.time()

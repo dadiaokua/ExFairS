@@ -13,6 +13,8 @@ from util.FileSaveUtil import save_to_file
 def calculate_Jains_index(clients, exp_type):
     """
     Calculates Jain's Fairness Index for a list of clients based on their fairness_ratio.
+    Since fairness_ratio is "smaller is better", we first normalize the ratios,
+    then use (1 - normalized_ratio) to calculate the index.
     Logs the calculation details with a timestamp to a file.
     """
     timestamp = datetime.datetime.now().isoformat()
@@ -21,25 +23,49 @@ def calculate_Jains_index(clients, exp_type):
     fairness_ratio = [client.fairness_ratio for client in clients]  # Corrected typo: clienr -> client
     n = len(fairness_ratio)
 
-    log_message = f"{log_entry_prefix}Calculating Jain's Index for {n} clients. Fairness Ratios: {fairness_ratio}. "
+    log_message = f"{log_entry_prefix}Calculating Jain's Index for {n} clients. Original Fairness Ratios: {fairness_ratio}. "
 
     if n == 0:
         j = 0  # Avoid division by zero, define result as 0 for no clients
         log_message += f"Result: {j} (n=0)."
+    elif n == 1:
+        # For single client, fairness index is perfect (1.0)
+        j = 1.0
+        log_message += f"Result: {j} (single client, perfect fairness)."
     else:
-        sum_service = sum(fairness_ratio)
-        sum_squares = sum(s ** 2 for s in fairness_ratio)
+        # Step 1: Normalize fairness ratios
+        min_ratio = min(fairness_ratio)
+        max_ratio = max(fairness_ratio)
+        
+        log_message += f"Min ratio: {min_ratio}, Max ratio: {max_ratio}. "
+        
+        if max_ratio == min_ratio:
+            # All ratios are equal, perfect fairness
+            normalized_ratios = [0.0] * n  # All normalized to 0
+            transformed_ratios = [1.0] * n  # All transformed to 1
+            log_message += f"All ratios equal, perfect fairness. Normalized ratios: {normalized_ratios}, Transformed ratios: {transformed_ratios}. "
+        else:
+            # Normalize to [0, 1] range: (ratio - min) / (max - min)
+            normalized_ratios = [(ratio - min_ratio) / (max_ratio - min_ratio) for ratio in fairness_ratio]
+            log_message += f"Normalized ratios: {normalized_ratios}. "
+            
+            # Step 2: Transform normalized ratios (1 - normalized_ratio)
+            # Since smaller fairness_ratio is better, we want larger transformed values for better performance
+            transformed_ratios = [1 - normalized_ratio for normalized_ratio in normalized_ratios]
+            log_message += f"Transformed ratios (1 - normalized): {transformed_ratios}. "
+        
+        # Step 3: Calculate Jain's Index using transformed ratios
+        sum_service = sum(transformed_ratios)
+        sum_squares = sum(s ** 2 for s in transformed_ratios)
         denominator = n * sum_squares
 
-        log_message += f"Sum(ratios): {sum_service}, Sum(ratios^2): {sum_squares}, Denominator (n * Sum(ratios^2)): {denominator}. "
+        log_message += f"Sum(transformed_ratios): {sum_service}, Sum(transformed_ratios^2): {sum_squares}, Denominator (n * Sum(transformed_ratios^2)): {denominator}. "
 
         if denominator == 0:
-            # Handle division by zero. If all ratios are 0, fairness could be considered perfect (1),
-            # but division by zero occurs. If ratios are non-zero but sum_squares is 0 (impossible for real numbers unless n=0),
-            # it's an edge case. Returning 0 avoids error, though 1 might be contextually better if all ratios are equal.
-            # Let's return 0 for safety against division error.
+            # Handle division by zero. This should not happen with proper transformed ratios,
+            # but we handle it for safety
             j = 0
-            log_message += f"Result: {j} (Denominator is zero)."
+            log_message += f"Result: {j} (Denominator is zero - unexpected case)."
         else:
             j = (sum_service ** 2) / denominator
             log_message += f"Result: {j}."
