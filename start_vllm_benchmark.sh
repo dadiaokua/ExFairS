@@ -8,28 +8,45 @@
 # ========== 命令行参数解析 ==========
 # 显示使用帮助
 show_help() {
-    echo "Usage: $0 [OPTIONS]"
-    echo ""
-    echo "Options:"
-    echo "  -e, --exp EXP_NAME          设置实验名称 (可多次使用，默认: QUEUE_LFS)"
+    echo "使用方法: $0 [选项]"
+    echo "选项:"
     echo "  -h, --help                  显示此帮助信息"
+    echo "  -e, --exp EXP_NAME          设置实验名称 (可多次使用，默认: QUEUE_ExFairS)"
     echo ""
     echo "可用的实验类型:"
-    echo "  - LFS                      Least Fair Share"
-    echo "  - VTC                      Virtual Time Credits"
-    echo "  - FCFS                     First Come First Serve"
-    echo "  - QUEUE_LFS                队列模式 - LFS调度"
-    echo "  - QUEUE_VTC                队列模式 - VTC调度"
-    echo "  - QUEUE_FCFS               队列模式 - FCFS调度"
-    echo "  - QUEUE_ROUND_ROBIN        队列模式 - 轮询调度"
-    echo "  - QUEUE_SJF                队列模式 - 最短作业优先"
-    echo "  - QUEUE_FAIR               队列模式 - 公平共享"
+    echo "  基础实验类型:"
+    echo "  - ExFairS                   Experiential Fairness Scheduling"
+    echo "  - VTC                       Variable Token Credits"
+    echo "  - FCFS                      First Come First Serve"
+    echo "  队列模式实验类型:"
+    echo "  - QUEUE_ExFairS             队列模式 - Experiential Fairness调度"
+    echo "  - QUEUE_VTC                 队列模式 - VTC调度"
+    echo "  - QUEUE_FCFS                队列模式 - FCFS调度"
+    echo "  - QUEUE_ROUND_ROBIN         队列模式 - 轮询调度"
+    echo "  - QUEUE_SJF                 队列模式 - 最短作业优先"
+    echo "  - QUEUE_FAIR                队列模式 - 公平调度"
     echo ""
     echo "示例:"
-    echo "  $0 -e LFS                  # 使用LFS实验类型"
-    echo "  $0 --exp QUEUE_VTC         # 使用队列VTC实验类型"
-    echo "  $0 -e LFS -e VTC -e FCFS   # 依次运行三个实验类型"
+    echo "  $0 -e ExFairS                  # 使用ExFairS实验类型"
+    echo "  $0 -e QUEUE_VTC             # 使用队列模式VTC实验类型"
+    echo "  $0 -e ExFairS -e VTC -e FCFS   # 依次运行三个实验类型"
     echo ""
+}
+
+# 实验类型映射函数：将用户输入的ExFairS映射为内部的LFS
+map_experiment_type() {
+    local input_exp="$1"
+    case "$input_exp" in
+        "ExFairS")
+            echo "LFS"
+            ;;
+        "QUEUE_ExFairS")
+            echo "QUEUE_LFS"
+            ;;
+        *)
+            echo "$input_exp"
+            ;;
+    esac
 }
 
 # 初始化实验类型数组
@@ -62,7 +79,7 @@ done
 
 # 如果没有指定实验类型，使用默认值
 if [[ ${#EXP_NAMES[@]} -eq 0 ]]; then
-    EXP_NAMES=("QUEUE_LFS")
+    EXP_NAMES=("QUEUE_ExFairS")
 fi
 
 # ========== vLLM引擎参数 ==========
@@ -124,7 +141,7 @@ TOKENIZER_PATH="/home/llm/model_hub/Llama-3.1-8B"
 REQUEST_MODEL_NAME="Qwen2.5-32B"
 
 # ========== 验证实验类型 ==========
-valid_exp_types=("LFS" "VTC" "FCFS" "QUEUE_LFS" "QUEUE_VTC" "QUEUE_FCFS" "QUEUE_ROUND_ROBIN" "QUEUE_SJF" "QUEUE_FAIR")
+valid_exp_types=("ExFairS" "LFS" "VTC" "FCFS" "QUEUE_ExFairS" "QUEUE_LFS" "QUEUE_VTC" "QUEUE_FCFS" "QUEUE_ROUND_ROBIN" "QUEUE_SJF" "QUEUE_FAIR")
 for exp_name in "${EXP_NAMES[@]}"; do
     if [[ ! " ${valid_exp_types[@]} " =~ " ${exp_name} " ]]; then
         echo "错误: 无效的实验类型 '$exp_name'"
@@ -213,6 +230,9 @@ run_benchmark() {
     local exp_index="$2"
     local total_exps="$3"
     
+    # 将实验类型映射为内部类型
+    local internal_exp_name=$(map_experiment_type "$exp_name")
+    
     echo ""
     echo "🚀🚀🚀 开始执行实验 $exp_index/$total_exps: $exp_name 🚀🚀🚀"
     echo "=========================================="
@@ -244,7 +264,7 @@ run_benchmark() {
         --sleep "$SLEEP_TIME" \
         --round "$ROUND_NUM" \
         --round_time "$ROUND_TIME" \
-        --exp "$exp_name" \
+        --exp "$internal_exp_name" \
         --use_time_data "$USE_TIME_DATA" \
         --tokenizer "$TOKENIZER_PATH" \
         --request_model_name "$REQUEST_MODEL_NAME" \

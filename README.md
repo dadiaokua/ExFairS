@@ -1,22 +1,39 @@
-# vLLM Benchmark
+# ExFairS
 
-This repository contains scripts for benchmarking the performance of large language models (LLMs) served using vLLM. It's designed to test the scalability and performance of LLM deployments under various concurrency levels and scheduling strategies.
+**Experiential Fairness Scheduling for Large Language Model Inference Services**
+
+This repository contains the implementation and benchmarking framework for ExFairS, a novel scheduling paradigm that addresses the core gap between system-level metrics and actual user experience in Large Language Model (LLM) inference services. 
+
+## Overview
+
+ExFairS introduces **Experiential Fairness** - a new user-centric approach to fairness optimization in LLM serving systems. Unlike traditional schedulers that focus solely on system-level metrics, ExFairS formulates a composite metric that unifies user SLO (Service Level Objective) compliance with system resource consumption to guide scheduling decisions.
+
+### Key Innovation
+
+- **User-Centric Fairness**: Bridges the gap between system metrics and actual user experience
+- **Composite Metric**: Unifies SLO compliance with resource consumption for optimal scheduling
+- **Proven Performance**: Reduces SLO violation rates by up to 100% while increasing throughput by 14%-21.9%
+- **Concurrent Optimization**: Enhances user experience in concert with, rather than at the expense of, system efficiency
+
+### Research Impact
+
+Our extensive experiments across diverse heterogeneous and high-concurrency workloads demonstrate that ExFairS substantially outperforms state-of-the-art fairness schedulers, providing a quantifiable framework that proves enhancing user experience and improving system efficiency can be achieved simultaneously.
 
 ## Features
 
 - **Automatic vLLM Engine Startup**: Built-in vLLM engine management with configurable parameters
 - **Multi-Experiment Support**: Run multiple scheduling experiments in sequence with a single command
-- **Multiple Scheduling Strategies**: LFS, VTC, FCFS, and Queue-based strategies
+- **Multiple Scheduling Strategies**: ExFairS, VTC, FCFS, and Queue-based strategies for comprehensive comparison
 - **Easy Configuration**: Bash script with command-line argument support
-- Benchmark LLMs with different concurrency levels
-- Measure key performance metrics:
-  - Requests per second
-  - Latency
-  - Tokens per second
-  - Time to first token
+- **Comprehensive Benchmarking**: Test LLM deployments under various concurrency levels and scheduling strategies
+- **Advanced Metrics Collection**:
+  - Requests per second and latency measurements
+  - Tokens per second and time to first token
+  - SLO compliance and violation rates
   - Fairness metrics (Jain's Index)
-- Advanced plotting capabilities with separate views for performance, fairness, and aggregated metrics
-- Generates JSON output for further analysis or visualization
+  - User experience quantification
+- **Advanced Plotting**: Separate views for performance, fairness, and aggregated metrics
+- **JSON Output**: Detailed results for further analysis and visualization
 
 ## Requirements
 
@@ -32,8 +49,8 @@ This repository contains scripts for benchmarking the performance of large langu
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/yourusername/vllm-benchmark.git
-   cd vllm-benchmark
+   git clone https://github.com/dadiaokua/ExFairS.git
+   cd ExFairS
    ```
 
 2. Install the required packages:
@@ -43,32 +60,33 @@ This repository contains scripts for benchmarking the performance of large langu
 
 ## Quick Start
 
-The easiest way to run benchmarks is using the provided bash script:
+The easiest way to run ExFairS experiments and compare with baseline schedulers is using the provided bash script:
 
 ### Single Experiment
 
 ```bash
-# Run LFS experiment
-./start_vllm_benchmark.sh -e LFS
+# Run ExFairS experiment (our proposed scheduler)
+./start_vllm_benchmark.sh -e ExFairS
 
-# Run VTC experiment  
-./start_vllm_benchmark.sh -e VTC
+# Run baseline schedulers for comparison
+./start_vllm_benchmark.sh -e VTC    # Variable Token Credits
+./start_vllm_benchmark.sh -e FCFS   # First Come First Serve
 
-# Run queue-based LFS experiment
-./start_vllm_benchmark.sh -e QUEUE_LFS
+# Run queue-based ExFairS experiment
+./start_vllm_benchmark.sh -e QUEUE_ExFairS
 ```
 
-### Multiple Experiments (Batch Mode)
+### Comparative Analysis (Recommended for Research)
 
 ```bash
-# Compare different scheduling strategies
-./start_vllm_benchmark.sh -e LFS -e VTC -e FCFS
+# Compare ExFairS against all baseline schedulers
+./start_vllm_benchmark.sh -e ExFairS -e VTC -e FCFS
 
-# Test all queue-based strategies
-./start_vllm_benchmark.sh -e QUEUE_LFS -e QUEUE_VTC -e QUEUE_FCFS -e QUEUE_ROUND_ROBIN
+# Comprehensive queue-based scheduler comparison
+./start_vllm_benchmark.sh -e QUEUE_ExFairS -e QUEUE_VTC -e QUEUE_FCFS -e QUEUE_ROUND_ROBIN
 
-# Mixed comparison
-./start_vllm_benchmark.sh -e LFS --exp QUEUE_LFS -e VTC
+# Full evaluation (reproduce paper results)
+./start_vllm_benchmark.sh -e ExFairS -e VTC -e FCFS -e QUEUE_ExFairS -e QUEUE_VTC
 ```
 
 ### Getting Help
@@ -92,7 +110,7 @@ cd run_benchmark
 python3 run_benchmarks.py \
     --vllm_url "http://localhost:8000/v1" \
     --api_key "test" \
-    --exp "LFS" \
+    --exp "ExFairS" \
     --short_clients 7 \
     --long_clients 3 \
     --round 20 \
@@ -196,9 +214,9 @@ When running multiple experiments:
 
 ### Status Reporting
 ```bash
-🚀🚀🚀 开始执行实验 1/3: LFS 🚀🚀🚀
+🚀🚀🚀 开始执行实验 1/3: ExFairS 🚀🚀🚀
 [Experiment execution...]
-✅ 实验 1/3: LFS 已完成
+✅ 实验 1/3: ExFairS 已完成
 
 📋 准备开始下一个实验: 2/3 - VTC
 ==========================================
@@ -214,48 +232,36 @@ When running multiple experiments:
   失败实验数: 0
 
 ✅ 成功的实验:
-    - LFS
+    - ExFairS
     - VTC
     - FCFS
 ```
-
-## Log Management
-
-The system generates timestamped log files for each run:
-
-```
-log/
-├── client_short_20250101_143022.log    # Short client logs
-├── client_long_20250101_143022.log     # Long client logs
-├── monitor_LFS_20250101_143022.log     # Monitor logs
-└── run_benchmarks_20250101_143022.log  # Main program logs
-```
-
-Each experiment run creates a new set of log files, preserving history while keeping current runs separate.
 
 ## Output and Results
 
 ### JSON Results
 Results are saved in timestamped JSON files in the `results/` directory:
-- Individual client performance metrics
-- Fairness calculations and Jain's index
-- System-wide aggregated statistics
+- Individual client performance metrics and SLO compliance
+- ExFairS composite fairness metrics combining user experience and system efficiency
+- Comparative analysis against baseline schedulers (VTC, FCFS, etc.)
+- System-wide aggregated statistics and throughput measurements
 
 ### Plots
-Three types of plots are automatically generated:
-1. **Performance plots** (`performance_metrics_*.png`)
-2. **Fairness plots** (`fairness_metrics_*.png`)  
-3. **Aggregated plots** (`aggregated_metrics_*.png`)
+Three types of plots are automatically generated for research analysis:
+1. **Performance plots** (`performance_metrics_*.png`) - System throughput and latency analysis
+2. **Fairness plots** (`fairness_metrics_*.png`) - User experience and SLO compliance visualization  
+3. **Aggregated plots** (`aggregated_metrics_*.png`) - Comparative scheduler performance
 
-### Metrics Included
-- **Performance**: Latency, tokens/sec, requests/sec, success rate
-- **Fairness**: Jain's fairness index, client fairness ratios, credit systems
-- **System**: Total throughput, average performance, SLO violations
 
-## Contributing
+### For Researchers
 
-Contributions to improve the benchmarking scripts or add new features are welcome! Please feel free to submit pull requests or open issues for any bugs or feature requests.
+If you use ExFairS in your research, please cite our paper:
+
+### Coming soon...
+
 
 ## License
 
 This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
+
+This software is provided for research and educational purposes. Commercial use may require additional licensing considerations.
