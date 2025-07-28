@@ -141,7 +141,7 @@ TOKENIZER_PATH="/home/llm/model_hub/Llama-3.1-8B"
 REQUEST_MODEL_NAME="Qwen2.5-32B"
 
 # ========== 验证实验类型 ==========
-valid_exp_types=("ExFairS" "LFS" "VTC" "FCFS" "QUEUE_ExFairS" "QUEUE_LFS" "QUEUE_VTC" "QUEUE_FCFS" "QUEUE_ROUND_ROBIN" "QUEUE_SJF" "QUEUE_FAIR")
+valid_exp_types=("ExFairS" "LFS" "VTC" "FCFS" "QUEUE_ExFairS" "QUEUE_LFS" "QUEUE_VTC" "QUEUE_FCFS" "QUEUE_ROUND_ROBIN" "QUEUE_SJF" "QUEUE_MINQUE")
 for exp_name in "${EXP_NAMES[@]}"; do
     if [[ ! " ${valid_exp_types[@]} " =~ " ${exp_name} " ]]; then
         echo "错误: 无效的实验类型 '$exp_name'"

@@ -162,8 +162,8 @@ async def fairness_result(clients, exp_type, logger):
         client.fairness_ratio = service_ratio * (1 - alpha) + alpha * slo_violation_ratio
 
         if "QUE" in exp_type:
-            current_throughput = client.results['tokens_per_second']['average']
-            current_latency = client.results['latency']['average']
+            current_throughput = client.results[-1]['tokens_per_second']['average']
+            current_latency = client.results[-1]['latency']['average']
             current_cost = client.service
 
             # --- 开始计算归一化值 ---
