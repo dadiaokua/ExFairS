@@ -36,9 +36,9 @@ def calculate_Jains_index(clients, exp_type):
         # Step 1: Normalize fairness ratios
         min_ratio = min(fairness_ratio)
         max_ratio = max(fairness_ratio)
-        
+
         log_message += f"Min ratio: {min_ratio}, Max ratio: {max_ratio}. "
-        
+
         if max_ratio == min_ratio:
             # All ratios are equal, perfect fairness
             normalized_ratios = [0.0] * n  # All normalized to 0
@@ -48,12 +48,12 @@ def calculate_Jains_index(clients, exp_type):
             # Normalize to [0, 1] range: (ratio - min) / (max - min)
             normalized_ratios = [(ratio - min_ratio) / (max_ratio - min_ratio) for ratio in fairness_ratio]
             log_message += f"Normalized ratios: {normalized_ratios}. "
-            
+
             # Step 2: Transform normalized ratios (1 - normalized_ratio)
             # Since smaller fairness_ratio is better, we want larger transformed values for better performance
             transformed_ratios = [1 - normalized_ratio for normalized_ratio in normalized_ratios]
             log_message += f"Transformed ratios (1 - normalized): {transformed_ratios}. "
-        
+
         # Step 3: Calculate Jain's Index using transformed ratios
         sum_service = sum(transformed_ratios)
         sum_squares = sum(s ** 2 for s in transformed_ratios)
@@ -97,6 +97,9 @@ async def fairness_result(clients, exp_type, logger):
     # Calculate service values and max service in one pass
     max_service = 0
     service = []
+    raw_throughputs = []
+    raw_latencies = []
+    raw_costs = []
 
     logger.debug(f"[Fairness Debug] Calculating fairness for {len(clients)} clients")
 
@@ -106,14 +109,19 @@ async def fairness_result(clients, exp_type, logger):
 
         # Calculate service value
         service_value = calculate_service_value(
-            latest_result["total_input_tokens"], 
+            latest_result["total_input_tokens"],
             latest_result["total_output_tokens"]
         )
 
+        if "QUE" in exp_type:
+            raw_throughputs.append(latest_result['tokens_per_second']['average'])
+            raw_latencies.append(latest_result['latency']['average'])
+            raw_costs.append(service_value)
+
         logger.debug(f"[Fairness Debug] Client {latest_result['client_index']}: "
-              f"input_tokens={latest_result['total_input_tokens']}, "
-              f"output_tokens={latest_result['total_output_tokens']}, "
-              f"service_value={service_value}")
+                     f"input_tokens={latest_result['total_input_tokens']}, "
+                     f"output_tokens={latest_result['total_output_tokens']}, "
+                     f"service_value={service_value}")
 
         # Update max service
         max_service = max(max_service, service_value)
@@ -127,15 +135,21 @@ async def fairness_result(clients, exp_type, logger):
         # Update client attributes
         client.service = service_value
 
+    if "QUE" in exp_type:
+        throughput_min, throughput_max = min(raw_throughputs), max(raw_throughputs)
+        latency_min, latency_max = min(raw_latencies), max(raw_latencies)
+        cost_min, cost_max = min(raw_costs), max(raw_costs)
+
     logger.debug(f"[Fairness Debug] Max service calculated: {max_service}")
 
     # 添加除零保护：如果max_service为0，说明所有客户端都没有处理任何token
     if max_service == 0:
-        logger.warning(f"[Fairness] Warning: max_service is 0, all clients have zero tokens. Setting equal fairness ratios.")
+        logger.warning(
+            f"[Fairness] Warning: max_service is 0, all clients have zero tokens. Setting equal fairness ratios.")
         # 如果没有服务值，给所有客户端相等的公平性比例
         for client in clients:
             client.fairness_ratio = 1  # 平均分配
-        
+
         # 计算Jain's公平性指数
         tmp_jains_index = calculate_Jains_index(clients, exp_type)
         return tmp_jains_index, service
@@ -146,6 +160,36 @@ async def fairness_result(clients, exp_type, logger):
         slo_violation_ratio = client.slo_violation_count / client.results[-1]['total_requests']
         service_ratio = client.service / max_service  # 现在max_service保证不为0
         client.fairness_ratio = service_ratio * (1 - alpha) + alpha * slo_violation_ratio
+
+        if "QUE" in exp_type:
+            current_throughput = client.results['tokens_per_second']['average']
+            current_latency = client.results['latency']['average']
+            current_cost = client.service
+
+            # --- 开始计算归一化值 ---
+
+            # a. 吞吐量 (越高越好)
+            # 公式: (current - min) / (max - min)
+            if (throughput_max - throughput_min) > 0:
+                client.Norm_throughput = (current_throughput - throughput_min) / (throughput_max - throughput_min)
+            else:
+                client.Norm_throughput = 0.5  # 如果所有值都一样，给一个中间值
+
+            # b. 延迟 (越低越好)
+            # 反向归一化公式: (max - current) / (max - min)
+            if (latency_max - latency_min) > 0:
+                client.Norm_latency = (latency_max - current_latency) / (latency_max - latency_min)
+            else:
+                client.Norm_latency = 0.5
+
+            # c. 成本 (越低越好)
+            # 反向归一化公式: (max - current) / (max - min)
+            if (cost_max - cost_min) > 0:
+                client.Norm_cost = (cost_max - current_cost) / (cost_max - cost_min)
+            else:
+                client.Norm_cost = 0.5
+            client.que = GLOBAL_CONFIG.get('que_throughput', 0.3) * client.Norm_throughput - GLOBAL_CONFIG.get(
+                'que_latency', 0.4) * client.Norm_latency - GLOBAL_CONFIG.get('que_cost', 0.3) * client.Norm_cost
 
     # Calculate Jain's fairness index
     tmp_jains_index = calculate_Jains_index(clients, exp_type)
@@ -160,7 +204,7 @@ async def is_fairness_LFSLLM(clients, exp_type):
     iteration = 0
     count = 0
 
-    while iteration < (len(clients)  / 2):
+    while iteration < (len(clients) / 2):
         print(f"[Fairness] Starting iteration {iteration + 1}/{len(clients) / 2}")
         clients.sort(key=lambda client: client.fairness_ratio)
         client_low_fairness_ratio, client_high_fairness_ratio = selectClients_LFS(clients)
@@ -175,26 +219,36 @@ async def is_fairness_LFSLLM(clients, exp_type):
     return count
 
 
-async def is_fairness_VTC(clients, exp_type):
+async def is_fairness_QUE(clients, exp_type):
     if len(clients) < 2:
         print("[Fairness] Not enough clients for fairness calculation (minimum 2 required)")
         return
-    iteration = 0
-    count = 0
 
-    while iteration < (len(clients) / 2):
-        print(f"[Fairness] Starting iteration {iteration + 1}/{len(clients) / 2}")
-        clients.sort(key=lambda client: client.service)
-        client1, client2 = selectClients_VTC(clients)
-        if client1 is not None and client2 is not None:
-            exchange_resources(client1, client2, clients, exp_type)
-            count += 1
-        else:
-            break
-        iteration += 1
+    # --- 核心逻辑开始 ---
 
-    print("[Fairness] WARNING: Reached maximum iterations without achieving target fairness ratio")
-    return count
+    # 1. 计算所有客户端的平均que
+    que_scores = [client.que for client in clients]
+    average_que = sum(que_scores) / len(que_scores)
+
+    # 2. 选出que最小的客户端
+    worst_client = min(clients, key=lambda c: c.que)
+
+    # 3. 计算需要增加的优先级
+    # 公式: (que平均值 - client.que) * 10
+    # 由于 worst_client.que 是最小值，(average_que - worst_client.que) 必然是正数
+    priority_boost = (average_que - worst_client.que) * 10
+
+    print(f"平均que为: {average_que:.2f}")
+    print(f"找到体验最差的客户端: {worst_client.name} (que: {worst_client.que:.2f})")
+    print(f"计算出的优先级提升量: ({average_que:.2f} - {worst_client.que:.2f}) * 10 = {priority_boost:.2f}")
+
+    # 4. 更新该客户端的优先级
+    original_priority = worst_client.priority
+    worst_client.priority += priority_boost
+
+    print(f"客户端 {worst_client.name} 的优先级从 {original_priority:.2f} 提升至 {worst_client.priority:.2f}")
+
+    return 0
 
 
 async def is_fairness_FCFS(clients, exp_type):
@@ -231,15 +285,15 @@ def calculate_metrics(concurrency, request_timeout, client_id, results, start_ti
     print(f"[Debug] calculate_metrics for {client_id}: {len(results)} results")
     if len(results) > 0:
         print(f"[Debug] First few results: {results[:3]}")
-    
+
     # Calculate metrics
     total_elapsed_time = end_time - start_time
     total_tokens = sum(tokens for tokens, _, _, _, _, _ in results if tokens is not None)
     total_input_tokens = sum(input_token for _, _, _, _, input_token, _ in results if input_token is not None)
-    
+
     # 添加token调试信息
     print(f"[Debug] {client_id}: total_output_tokens={total_tokens}, total_input_tokens={total_input_tokens}")
-    
+
     latencies = [elapsed_time for _, elapsed_time, _, _, _, _ in results if elapsed_time is not None]
     tokens_per_second_list = [tps for _, _, tps, _, _, _ in results if tps is not None]
     ttft_list = [ttft for _, _, _, ttft, _, _ in results if ttft is not None]

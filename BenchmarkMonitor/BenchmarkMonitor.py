@@ -9,7 +9,7 @@ from functools import wraps
 
 from config.Config import GLOBAL_CONFIG
 from util.FileSaveUtil import save_results
-from util.MathUtil import fairness_result, is_fairness_LFSLLM, is_fairness_VTC, is_fairness_FCFS
+from util.MathUtil import fairness_result, is_fairness_LFSLLM, is_fairness_QUE, is_fairness_FCFS
 
 def timing_decorator(func):
     """装饰器：用于测量函数执行时间"""
@@ -92,6 +92,7 @@ class ExperimentMonitor:
             "LFS": is_fairness_LFSLLM,
             # "VTC": is_fairness_VTC,
             "QUEUE_LFS": is_fairness_LFSLLM,
+            "QUEUE_MINQUE": is_fairness_QUE,
             # "QUEUE_VTC": is_fairness_VTC,
         }
 
@@ -229,7 +230,7 @@ class ExperimentMonitor:
             self.logger.info(f"Fairness calculation complete: {f_result}, {s_result}")
             
             # 根据配置决定是否进行公平性调整
-            if self.exp_type != "FCFS":
+            if "LFS" in self.exp_type or "QUE" in self.exp_type:
                 exchange_count = await self._adjust_fairness()
             else:
                 exchange_count = 0

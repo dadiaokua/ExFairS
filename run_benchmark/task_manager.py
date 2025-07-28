@@ -65,7 +65,8 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
             "QUEUE_FIFO": QueueStrategy.FIFO,
             "QUEUE_LFS": QueueStrategy.PRIORITY,
             "QUEUE_ROUND_ROBIN": QueueStrategy.ROUND_ROBIN,
-            "QUEUE_VTC": QueueStrategy.VTC
+            "QUEUE_VTC": QueueStrategy.VTC,
+            "QUEUE_MINQUE": QueueStrategy.PRIORITY
         }
 
         strategy = strategy_map.get(args.exp, QueueStrategy.FIFO)

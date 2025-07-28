@@ -36,7 +36,7 @@ class QueueStrategy(Enum):
     PRIORITY = "priority"  # 基于优先级
     ROUND_ROBIN = "round_robin"  # 轮询
     SHORTEST_JOB_FIRST = "sjf"  # 最短作业优先
-    FAIR_SHARE = "fair_share"  # 公平共享
+    MIN_QUE = "min_que"  # 公平共享
     VTC = "vtc"
 
 

@@ -37,4 +37,9 @@ GLOBAL_CONFIG = {
     # 队列监控配置
     "queue_monitor_interval": 5,  # 队列监控间隔（秒）
     "queue_worker_sleep_time": 1,  # 队列列表睡眠时间（秒）
+
+    # QuE
+    "que_throughput": 0.3,
+    "que_latency": 0.4,
+    "que_cost": 0.3,
 }

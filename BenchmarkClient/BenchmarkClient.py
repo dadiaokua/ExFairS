@@ -68,12 +68,18 @@ class BenchmarkClient:
         self.active_ratio = 1.0
         self.time_ratio = 1.0
         self.fairness_ratio = 0
+        self.que = 0
         self.credit = 0
         self.max_service = -1
         self.priority = 0
 
         self.openAI_client = OpenAI_client
         self.monitor_done_event = asyncio.Event()
+
+        # QuE
+        self.Norm_throughput = 0.0
+        self.Norm_latency = 0.0
+        self.Norm_cost = 0.0
 
         # State tracking
         self.results = []
@@ -301,7 +307,7 @@ class BenchmarkClient:
             "QUEUE_LFS": lambda client: QueueExperiment(client, self.queue_manager, QueueStrategy.PRIORITY),
             "QUEUE_ROUND_ROBIN": lambda client: QueueExperiment(client, self.queue_manager, QueueStrategy.ROUND_ROBIN),
             "QUEUE_SJF": lambda client: QueueExperiment(client, self.queue_manager, QueueStrategy.SHORTEST_JOB_FIRST),
-            "QUEUE_FAIR": lambda client: QueueExperiment(client, self.queue_manager, QueueStrategy.FAIR_SHARE),
+            "QUEUE_MINQUE": lambda client: QueueExperiment(client, self.queue_manager, QueueStrategy.MIN_QUE),
             "QUEUE_VTC": lambda client: QueueExperiment(client, self.queue_manager, QueueStrategy.VTC),
         }
 
