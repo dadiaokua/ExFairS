@@ -7,7 +7,7 @@ def get_monitor_file_time():
 GLOBAL_CONFIG = {
     "latency_slo": 5,
     "output_tokens": 256,
-    "alpha": 0.3,
+    "alpha": 0.7,
     "fairness_ratio_LFS": 0.1,
     "fairness_ratio_VTC": 0.5,
     'ADJUST_SENSITIVITY': 1,
