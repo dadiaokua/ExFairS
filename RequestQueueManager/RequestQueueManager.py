@@ -501,11 +501,11 @@ class RequestQueueManager:
 
                         # 计算实际插入位置：从末尾往前数 max_forward_positions 个位置
                         insert_pos = max(0, len(self.priority_queue_list) - max_forward_positions)
-
-                        self.logger.info(f"优先级请求 {request.request_id} (priority={request.priority}): "
-                                          f"排名比例={priority_rank_ratio:.3f}, 可超越={can_overtake_count}, "
-                                          f"前进位置={max_forward_positions}, 插入位置={insert_pos}, "
-                                          f"队列总长度={len(self.priority_queue_list)}")
+                        if max_forward_positions > 0:
+                            self.logger.info(f"优先级请求 {request.request_id} (priority={request.priority}): "
+                                             f"排名比例={priority_rank_ratio:.3f}, 可超越={can_overtake_count}, "
+                                             f"前进位置={max_forward_positions}, 插入位置={insert_pos}, "
+                                             f"队列总长度={len(self.priority_queue_list)}")
 
                     # 执行插入操作
                     insertion_start_time = time.time()

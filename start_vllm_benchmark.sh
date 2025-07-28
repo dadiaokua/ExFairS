@@ -23,8 +23,7 @@ show_help() {
     echo "  - QUEUE_VTC                 队列模式 - VTC调度"
     echo "  - QUEUE_FCFS                队列模式 - FCFS调度"
     echo "  - QUEUE_ROUND_ROBIN         队列模式 - 轮询调度"
-    echo "  - QUEUE_SJF                 队列模式 - 最短作业优先"
-    echo "  - QUEUE_FAIR                队列模式 - 公平调度"
+    echo "  - QUEUE_MINQUE              队列模式 - QuE调度"
     echo ""
     echo "示例:"
     echo "  $0 -e ExFairS                  # 使用ExFairS实验类型"
@@ -141,7 +140,7 @@ TOKENIZER_PATH="/home/llm/model_hub/Llama-3.1-8B"
 REQUEST_MODEL_NAME="Qwen2.5-32B"
 
 # ========== 验证实验类型 ==========
-valid_exp_types=("ExFairS" "LFS" "VTC" "FCFS" "QUEUE_ExFairS" "QUEUE_LFS" "QUEUE_VTC" "QUEUE_FCFS" "QUEUE_ROUND_ROBIN" "QUEUE_SJF" "QUEUE_MINQUE")
+valid_exp_types=("ExFairS" "VTC" "FCFS" "QUEUE_ExFairS" "QUEUE_VTC" "QUEUE_FCFS" "QUEUE_ROUND_ROBIN" "QUEUE_MINQUE")
 for exp_name in "${EXP_NAMES[@]}"; do
     if [[ ! " ${valid_exp_types[@]} " =~ " ${exp_name} " ]]; then
         echo "错误: 无效的实验类型 '$exp_name'"
