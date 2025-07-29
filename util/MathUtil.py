@@ -250,7 +250,7 @@ async def is_fairness_QUE(clients, exp_type):
     # 3. 计算需要增加的优先级
     # 公式: (que平均值 - client.que) * 10
     # 由于 worst_client.que 是最小值，(average_que - worst_client.que) 必然是正数
-    priority_boost = (average_que - worst_client.que) * 10
+    priority_boost = (average_que - worst_client.que)
 
     print(f"平均que为: {average_que:.2f}")
     print(f"找到体验最差的客户端: {worst_client.client_id} (que: {worst_client.que:.2f})")
