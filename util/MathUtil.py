@@ -114,9 +114,19 @@ async def fairness_result(clients, exp_type, logger):
         )
 
         if "QUE" in exp_type:
-            raw_throughputs.append(latest_result['tokens_per_second']['average'])
-            raw_latencies.append(latest_result['latency']['average'])
-            raw_costs.append(service_value)
+            # 添加保护性检查，防止失败实验导致KeyError
+            tps_data = latest_result.get('tokens_per_second', {})
+            latency_data = latest_result.get('latency', {})
+            
+            if 'average' in tps_data and 'average' in latency_data:
+                raw_throughputs.append(tps_data['average'])
+                raw_latencies.append(latency_data['average'])
+                raw_costs.append(service_value)
+            else:
+                # 如果是失败的实验，使用0值
+                raw_throughputs.append(0)
+                raw_latencies.append(0)
+                raw_costs.append(service_value)
 
         logger.debug(f"[Fairness Debug] Client {latest_result['client_index']}: "
                      f"input_tokens={latest_result['total_input_tokens']}, "
@@ -162,8 +172,12 @@ async def fairness_result(clients, exp_type, logger):
         client.fairness_ratio = service_ratio * (1 - alpha) + alpha * slo_violation_ratio
 
         if "QUE" in exp_type:
-            current_throughput = client.results[-1]['tokens_per_second']['average']
-            current_latency = client.results[-1]['latency']['average']
+            # 添加保护性检查，防止失败实验导致KeyError
+            tps_data = client.results[-1].get('tokens_per_second', {})
+            latency_data = client.results[-1].get('latency', {})
+            
+            current_throughput = tps_data.get('average', 0)
+            current_latency = latency_data.get('average', 0)
             current_cost = client.service
 
             # --- 开始计算归一化值 ---

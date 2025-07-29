@@ -178,9 +178,9 @@ class BaseExperiment:
             empty_metrics = {
                 'successful_requests': completed_requests,
                 'total_requests': total_requests,
-                'latency': {'p50': 0, 'p95': 0, 'p99': 0, 'avg': 0},
-                'time_to_first_token': {'p50': 0, 'p95': 0, 'p99': 0, 'avg': 0},
-                'tokens_per_second': {'p50': 0, 'p95': 0, 'p99': 0, 'avg': 0},
+                'latency': {'p50': 0, 'p95': 0, 'p99': 0, 'average': 0},
+                'time_to_first_token': {'p50': 0, 'p95': 0, 'p99': 0, 'average': 0},
+                'tokens_per_second': {'p50': 0, 'p95': 0, 'p99': 0, 'average': 0},
                 'requests_per_second': 0,
                 'total_input_tokens': 0,
                 'total_output_tokens': 0,
