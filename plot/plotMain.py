@@ -1,8 +1,15 @@
 import json
 import math
 import os
+import sys
+import matplotlib
+# 设置非交互式后端，避免显示窗口导致的问题
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
+
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.Config import GLOBAL_CONFIG
 from plot.plotUtil import xLabel_time, plot_metrics_with_annotations, setup_subplot, setup_subplot_client, \
@@ -124,7 +131,8 @@ def plot_averaged_results(short_results, long_results, args_concurrency, total_t
 
     # 保存图片
     fig2.savefig('figure/system_results' + filename.split('.')[0] + '.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    # plt.show()  # 使用Agg后端，不需要显示窗口
+    plt.close()
     return time_xLabel
 
 
@@ -144,7 +152,9 @@ def plot_comprehensive_results(sorted_all_results, args_concurrency, total_time,
     # 获取所有客户端
     clients = set()
     for result in sorted_all_results:
-        clients.add(f'{result[0]["client_index"]}_slo_{result[0]["latency_slo"]}')
+        # 使用 get() 方法安全地访问字段，如果不存在则使用默认值10
+        latency_slo = result[0].get("latency_slo", 10)
+        clients.add(f'{result[0]["client_index"]}_slo_{latency_slo}')
 
     # 将clients分为short、long和mix三组
     short_clients = sorted([c for c in clients if "short" in c])
@@ -225,7 +235,8 @@ def plot_comprehensive_results(sorted_all_results, args_concurrency, total_time,
     # 保存图表
     fig1.savefig(f'figure/performance_metrics{filename.split(".")[0]}.png', dpi=300, bbox_inches='tight')
 
-    plt.show()
+    # plt.show()  # 使用Agg后端，不需要显示窗口
+    plt.close()
 
 
 def plot_fairness_results(sorted_all_results, args_concurrency, total_time, filename, exp_type, fairness_results):
@@ -244,7 +255,9 @@ def plot_fairness_results(sorted_all_results, args_concurrency, total_time, file
     # 获取所有客户端
     clients = set()
     for result in sorted_all_results:
-        clients.add(f'{result[0]["client_index"]}_slo_{result[0]["latency_slo"]}')
+        # 使用 get() 方法安全地访问字段，如果不存在则使用默认值10
+        latency_slo = result[0].get("latency_slo", 10)
+        clients.add(f'{result[0]["client_index"]}_slo_{latency_slo}')
 
     # 将clients分为short、long和mix三组
     short_clients = sorted([c for c in clients if "short" in c])
@@ -268,23 +281,46 @@ def plot_fairness_results(sorted_all_results, args_concurrency, total_time, file
                        warm_colors, cool_colors, mix_colors, "fairness_ratio",
                        "Fairness Ratio", legend_handles, legend_labels)
 
-    # 2. Jain's公平性指数
+    # 2. Jain's公平性指数 - 现在支持多个指标
     if fairness_results:
-        f_values = [result['f_result'] for result in fairness_results]
-        times = list(range(len(f_values)))
-        if len(times) == len(f_values):
-            plot_fairness_index(axs2[1], f_values, times)
-        else:
-            print(f"Warning: Mismatched lengths - times: {len(times)}, f_values: {len(f_values)}")
-            min_len = min(len(times), len(f_values))
-            plot_fairness_index(axs2[1], f_values[:min_len], times[:min_len])
+        # 提取三种JAIN index，兼容旧格式
+        times = list(range(len(fairness_results)))
+        
+        # 尝试获取新格式的三个指标
+        safi_values = []
+        token_values = []
+        slo_values = []
+        
+        for result in fairness_results:
+            # 新格式：包含三个JAIN index
+            if 'jains_index_safi' in result:
+                safi_values.append(result.get('jains_index_safi', 0))
+                token_values.append(result.get('jains_index_token', 0))
+                slo_values.append(result.get('jains_index_slo_violation', 0))
+            # 旧格式：只有一个f_result
+            elif 'f_result' in result:
+                safi_values.append(result['f_result'])
+        
+        # 绘制JAIN index（支持单个或多个指标）
+        if safi_values:
+            axs2[1].plot(times, safi_values, marker='o', label='SAFI (Service-Aware)', linewidth=2)
+        if token_values:
+            axs2[1].plot(times, token_values, marker='s', label='Token-based', linewidth=2)
+        if slo_values:
+            axs2[1].plot(times, slo_values, marker='^', label='SLO Violation', linewidth=2)
+        
+        axs2[1].set_title("Jain's Fairness Indices")
+        axs2[1].set_xlabel("Round")
+        axs2[1].set_ylabel("Fairness Index")
+        axs2[1].legend(loc='best')
+        axs2[1].grid(True, alpha=0.3)
     else:
         # 如果没有fairness数据，显示空图表
         axs2[1].text(0.5, 0.5, 'No Fairness Data Available', 
                      horizontalalignment='center', verticalalignment='center',
                      transform=axs2[1].transAxes, fontsize=12)
-        axs2[1].set_title("Jain's Fairness Index")
-        axs2[1].set_xlabel("Time")
+        axs2[1].set_title("Jain's Fairness Indices")
+        axs2[1].set_xlabel("Round")
         axs2[1].set_ylabel("Fairness Index")
     
     # 3. credit值
@@ -307,7 +343,8 @@ def plot_fairness_results(sorted_all_results, args_concurrency, total_time, file
     # 保存图表
     fig2.savefig(f'figure/fairness_metrics{filename.split(".")[0]}.png', dpi=300, bbox_inches='tight')
 
-    plt.show()
+    # plt.show()  # 使用Agg后端，不需要显示窗口
+    plt.close()
 
 
 def plot_client_metric(ax, sorted_all_results, short_clients, long_clients, mix_clients, warm_colors, cool_colors, mix_colors, metric_key, title,
@@ -335,7 +372,7 @@ def plot_client_metric(ax, sorted_all_results, short_clients, long_clients, mix_
     # 先绘制short clients，使用实线
     for i, client in enumerate(short_clients):
         client_results = next(
-            r for r in sorted_all_results if f'{r[0]["client_index"]}_slo_{r[0]["latency_slo"]}' == client)
+            r for r in sorted_all_results if f'{r[0]["client_index"]}_slo_{r[0].get("latency_slo", 10)}' == client)
         time = [result['time'] for result in client_results]
         time_xLabel = xLabel_time(time)
 
@@ -370,7 +407,7 @@ def plot_client_metric(ax, sorted_all_results, short_clients, long_clients, mix_
     # 再绘制long clients，使用虚线
     for i, client in enumerate(long_clients):
         client_results = next(
-            r for r in sorted_all_results if f'{r[0]["client_index"]}_slo_{r[0]["latency_slo"]}' == client)
+            r for r in sorted_all_results if f'{r[0]["client_index"]}_slo_{r[0].get("latency_slo", 10)}' == client)
         time = [result['time'] for result in client_results]
         time_xLabel = xLabel_time(time)
 
@@ -404,7 +441,7 @@ def plot_client_metric(ax, sorted_all_results, short_clients, long_clients, mix_
     # 再绘制mix clients，使用点线
     for i, client in enumerate(mix_clients):
         client_results = next(
-            r for r in sorted_all_results if f'{r[0]["client_index"]}_slo_{r[0]["latency_slo"]}' == client)
+            r for r in sorted_all_results if f'{r[0]["client_index"]}_slo_{r[0].get("latency_slo", 10)}' == client)
         time = [result['time'] for result in client_results]
         time_xLabel = xLabel_time(time)
 
@@ -440,7 +477,7 @@ def plot_client_metric(ax, sorted_all_results, short_clients, long_clients, mix_
     for client in all_clients:
         try:
             client_results = next(
-                r for r in sorted_all_results if f'{r[0]["client_index"]}_slo_{r[0]["latency_slo"]}' == client)
+                r for r in sorted_all_results if f'{r[0]["client_index"]}_slo_{r[0].get("latency_slo", 10)}' == client)
             if metric_key == "success_rate":
                 values = [result['successful_requests'] * 100 / result['total_requests'] for result in client_results]
             elif metric_key in ["tokens_per_second", "latency", "time_to_first_token"]:
@@ -640,7 +677,8 @@ def plot_aggregated_results(sorted_all_results, args_concurrency, total_time, fi
     # 保存图表
     fig.savefig(f'figure/aggregated_metrics{filename.split(".")[0]}.png', dpi=300, bbox_inches='tight')
 
-    plt.show()
+    # plt.show()  # 使用Agg后端，不需要显示窗口
+    plt.close()
 
 
 def plot_result(plot_data):

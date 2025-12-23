@@ -55,16 +55,24 @@ async def main():
     logger.info(f"Short clients: {args.short_clients}, Long clients: {args.long_clients}")
     logger.info(f"Round time: {args.round_time}s, Total rounds: {args.round}")
 
-    # 3. 启动vLLM引擎（如果需要）
+    # 3. 初始化后端（vLLM引擎或HTTP客户端）
     vllm_engine = None
+    
     if getattr(args, 'start_engine', True):
+        # 启动vLLM引擎
+        logger.info("=== Starting vLLM Engine ===")
         vllm_engine = await start_vllm_engine(args, logger)
         if vllm_engine is None:
             logger.error("Failed to start vLLM engine, exiting...")
             return
         
-        # 添加vLLM引擎到全局配置，以便其他模块可以访问
+        # 添加vLLM引擎到全局配置
         GLOBAL_CONFIG['vllm_engine'] = vllm_engine
+        logger.info("✓ vLLM engine started successfully")
+    else:
+        # 使用HTTP客户端连接远程服务
+        logger.info("=== Using HTTP Client ===")
+        logger.info(f"Connecting to remote vLLM server at: {args.vllm_url}")
 
     # 4. 设置全局配置
     GLOBAL_CONFIG['round_time'] = args.round_time
@@ -122,10 +130,11 @@ async def main():
         logger.error(f"Benchmark execution failed: {e}")
         traceback.print_exc()
     finally:
-        # 确保在程序结束时停止vLLM引擎
+        # 清理后端资源
         if vllm_engine:
+            logger.info("Stopping vLLM engine...")
             stop_vllm_engine(vllm_engine, logger)
-            logger.info("vLLM engine cleanup completed")
+            logger.info("✓ vLLM engine cleanup completed")
 
 
 if __name__ == "__main__":

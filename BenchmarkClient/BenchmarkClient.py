@@ -8,6 +8,8 @@ from experiment.base_experiment import BaseExperiment
 from experiment.FCFS_experiment import FCFSExperiment
 from experiment.LFS_experiment import LFSExperiment
 from experiment.VTC_experiment import VTCExperiment
+from experiment.Justitia_experiment import JustitiaExperiment
+from experiment.SLOGreedy_experiment import SLOGreedyExperiment
 from experiment.queue_experiment import QueueExperiment
 from RequestQueueManager.RequestQueueManager import QueueStrategy
 
@@ -301,14 +303,20 @@ class BenchmarkClient:
         experiment_types = {
             "baseline": BaseExperiment,
             "LFS": LFSExperiment,
+            "ExFairS": LFSExperiment,  # ExFairS uses LFS implementation
             "VTC": VTCExperiment,
             "FCFS": FCFSExperiment,
+            "Justitia": JustitiaExperiment,  # Justitia virtual time scheduling
+            "SLOGreedy": SLOGreedyExperiment,  # SLO violation rate greedy scheduling
             "QUEUE_FCFS": lambda client: QueueExperiment(client, self.queue_manager, QueueStrategy.FIFO),
             "QUEUE_LFS": lambda client: QueueExperiment(client, self.queue_manager, QueueStrategy.PRIORITY),
+            "QUEUE_ExFairS": lambda client: QueueExperiment(client, self.queue_manager, QueueStrategy.PRIORITY),
             "QUEUE_ROUND_ROBIN": lambda client: QueueExperiment(client, self.queue_manager, QueueStrategy.ROUND_ROBIN),
             "QUEUE_SJF": lambda client: QueueExperiment(client, self.queue_manager, QueueStrategy.SHORTEST_JOB_FIRST),
             "QUEUE_MINQUE": lambda client: QueueExperiment(client, self.queue_manager, QueueStrategy.MIN_QUE),
             "QUEUE_VTC": lambda client: QueueExperiment(client, self.queue_manager, QueueStrategy.VTC),
+            "QUEUE_Justitia": lambda client: QueueExperiment(client, self.queue_manager, QueueStrategy.JUSTITIA),
+            "QUEUE_SLOGreedy": lambda client: QueueExperiment(client, self.queue_manager, QueueStrategy.SLO_GREEDY),
         }
 
         # 创建并运行实验

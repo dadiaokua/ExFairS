@@ -60,32 +60,44 @@ Our extensive experiments across diverse heterogeneous and high-concurrency work
 
 ## Quick Start
 
-The easiest way to run ExFairS experiments and compare with baseline schedulers is using the provided bash script:
+### 单场景运行
 
-### Single Experiment
+使用指定场景运行实验：
 
 ```bash
-# Run ExFairS experiment (our proposed scheduler)
-./start_vllm_benchmark.sh -e ExFairS
+# 运行场景 I 的 ExFairS 实验
+./run.sh -e QUEUE_ExFairS --scenario scenario_I
 
-# Run baseline schedulers for comparison
-./start_vllm_benchmark.sh -e VTC    # Variable Token Credits
-./start_vllm_benchmark.sh -e FCFS   # First Come First Serve
-
-# Run queue-based ExFairS experiment
-./start_vllm_benchmark.sh -e QUEUE_ExFairS
+# 运行场景 I 的多个策略
+./run.sh -e QUEUE_ExFairS,QUEUE_Justitia,QUEUE_SLOGreedy --scenario scenario_I
 ```
 
-### Comparative Analysis (Recommended for Research)
+### 批量运行多场景
+
+自动运行多个场景和策略的组合：
 
 ```bash
-# Compare ExFairS against all baseline schedulers
-./start_vllm_benchmark.sh -e ExFairS -e VTC -e FCFS
+# 运行所有场景的所有策略
+./run.sh -s scenario_I,scenario_II,scenario_III,scenario_IV,scenario_V,scenario_VI
 
-# Comprehensive queue-based scheduler comparison
-./start_vllm_benchmark.sh -e QUEUE_ExFairS -e QUEUE_VTC -e QUEUE_FCFS -e QUEUE_ROUND_ROBIN
+# 运行指定场景和指定策略
+./run.sh -s scenario_I,scenario_II -e QUEUE_ExFairS,QUEUE_Justitia,QUEUE_SLOGreedy
 
-# Full evaluation (reproduce paper results)
+# 运行单个场景的所有默认策略
+./run.sh -s scenario_I
+```
+
+### 查看可用选项
+
+```bash
+# 列出所有场景
+./run.sh --list-scenarios
+
+# 列出所有策略
+./run.sh --list-strategies
+
+# 查看完整帮助
+./run.sh -h
 ./start_vllm_benchmark.sh -e ExFairS -e VTC -e FCFS -e QUEUE_ExFairS -e QUEUE_VTC
 ```
 
@@ -239,18 +251,60 @@ When running multiple experiments:
 
 ## Output and Results
 
+### Result Structure
+
+实验结果采用结构化存储：
+
+```
+results/
+  {run_id}/                         # 批次ID，如 run_20251223_091625
+    metadata.json                   # 批次元数据
+    {scenario}/                     # 场景名称
+      {strategy}/                   # 策略名称
+        results.json                # 详细统计数据
+        config.json                 # 实验配置
+      charts/                       # 可视化图表
+        performance.png             # 性能对比图
+        fairness.png                # 公平性对比图
+```
+
+### Visualization
+
+#### 新版可视化工具（推荐）
+
+```bash
+# 可视化最新运行的结果
+python3 scripts/visualize_results.py scenario_I_balanced
+
+# 指定特定的运行批次
+python3 scripts/visualize_results.py --run-id run_20251223_091625 scenario_I_balanced
+```
+
+新版可视化提供：
+- 📊 **性能对比图**: 完成率、SLO违约率、延迟、Goodput等
+- 📈 **公平性分析**: 三种Jain指数对比（SAFI、Token-based、SLO Violation）
+- 📋 **详细表格**: 控制台输出完整的性能对比表
+
+详细说明请参考：[可视化指南](docs/VISUALIZATION_GUIDE.md)
+
+#### 旧版可视化（兼容）
+
+```bash
+cd plot
+python3 plotMain.py
+```
+
+Three types of plots are automatically generated:
+1. **Performance plots** (`performance_metrics_*.png`) - System throughput and latency analysis
+2. **Fairness plots** (`fairness_metrics_*.png`) - User experience and SLO compliance visualization  
+3. **Aggregated plots** (`aggregated_metrics_*.png`) - Comparative scheduler performance
+
 ### JSON Results
 Results are saved in timestamped JSON files in the `results/` directory:
 - Individual client performance metrics and SLO compliance
 - ExFairS composite fairness metrics combining user experience and system efficiency
 - Comparative analysis against baseline schedulers (VTC, FCFS, etc.)
 - System-wide aggregated statistics and throughput measurements
-
-### Plots
-Three types of plots are automatically generated for research analysis:
-1. **Performance plots** (`performance_metrics_*.png`) - System throughput and latency analysis
-2. **Fairness plots** (`fairness_metrics_*.png`) - User experience and SLO compliance visualization  
-3. **Aggregated plots** (`aggregated_metrics_*.png`) - Comparative scheduler performance
 
 
 ### For Researchers
@@ -259,6 +313,112 @@ If you use ExFairS in your research, please cite our paper:
 
 ### Coming soon...
 
+
+## ⚙️ Configuration
+
+### vLLM Engine Configuration
+
+Edit `config/vllm/engine_config.yaml` to modify vLLM parameters:
+
+```yaml
+model_path: "/path/to/model"
+gpu_memory_utilization: 0.8
+max_num_seqs: 128
+tensor_parallel_size: 8
+```
+
+### Scenario Configuration
+
+Create or edit scenario files in `config/scenarios/`:
+
+```yaml
+name: "My_Scenario"
+clients:
+  short: {count: 2, qpm: [50, 50], slo: [20, 30]}
+  long: {count: 2, qpm: [50, 50], slo: [20, 30]}
+  mix: {count: 0, qpm: [], slo: []}
+experiment:
+  round_num: 10
+  round_time: 60
+  concurrency: 1
+```
+
+### Scenario Management Tools
+
+```bash
+# List all scenarios
+python3 config/scenario_manager.py list
+
+# View scenario details
+python3 config/scenario_manager.py show scenario_I
+
+# View vLLM config
+python3 config/scenario_manager.py vllm
+```
+
+## Scheduling Strategies
+
+This benchmark system supports multiple scheduling strategies for LLM inference:
+
+### Basic Strategies
+- **ExFairS** (Experiential Fairness Scheduling): Our proposed scheduler that balances user experience and system efficiency
+- **VTC** (Variable Token Credits): Token-based fair scheduling
+- **FCFS** (First Come First Serve): Simple FIFO scheduling
+- **Justitia**: Virtual time-based fair scheduling with short job prioritization
+- **SLOGreedy**: SLO violation rate-based greedy scheduling
+
+### Queue-based Strategies
+All basic strategies can be run in queue mode with the `QUEUE_` prefix:
+- `QUEUE_ExFairS`, `QUEUE_VTC`, `QUEUE_FCFS`, etc.
+- Queue mode provides better resource management and scheduling control
+- Supports additional strategies like `QUEUE_ROUND_ROBIN` and `QUEUE_MINQUE`
+
+### Strategy Comparison
+
+| Strategy | Focus | Best For |
+|----------|-------|----------|
+| **ExFairS** | User experience + efficiency | General-purpose fair scheduling |
+| **VTC** | Resource fairness | Balancing token consumption |
+| **FCFS** | Simplicity | Baseline comparison |
+| **Justitia** | Short job optimization | Mixed workloads with varying lengths |
+| **SLOGreedy** | SLO compliance | Meeting service quality objectives |
+
+For detailed explanations of Justitia and SLOGreedy, see [Justitia and SLOGreedy Guide](docs/Justitia_and_SLOGreedy_Guide.md).
+
+## 📂 Project Structure
+
+```
+vllm-benchmark/
+├── config/
+│   ├── vllm/
+│   │   └── engine_config.yaml      # vLLM引擎配置
+│   ├── scenarios/
+│   │   ├── scenario_I.yaml         # 场景I: 均衡负载
+│   │   ├── scenario_II.yaml        # 场景II: 不均衡负载
+│   │   ├── scenario_III.yaml       # 场景III: 异构4客户端
+│   │   ├── scenario_IV.yaml        # 场景IV: 异构8客户端
+│   │   ├── scenario_V.yaml         # 场景V: 高并发20客户端
+│   │   └── scenario_VI.yaml        # 场景VI: 高并发50客户端
+│   └── scenario_manager.py         # 场景管理工具
+│
+├── results/
+│   └── <timestamp>/                # 按时间戳组织的结果目录
+│       ├── metadata.json
+│       ├── run.log
+│       └── <scenario>_<strategy>/  # 具体实验结果
+│
+├── run_experiments.sh              # 批量运行脚本
+├── start_vllm_benchmark.sh         # 单场景运行脚本
+└── README.md                       # 本文件
+```
+
+## 📖 Additional Documentation
+
+- 📚 [Quick Start Guide](QUICKSTART.md) - 5分钟快速上手
+- 📖 [Quick Reference](docs/QUICK_REFERENCE.md) - 常用命令速查
+- 📊 [Visualization Guide](docs/Visualization_Guide.md) - 结果可视化指南
+- 🔧 [Multi JAIN Index Guide](docs/Multi_JAIN_Index_Enhancement.md) - 公平性指标详解
+- 🛠️ [Ubuntu Setup Guide](docs/UBUNTU_SETUP_GUIDE.md) - Ubuntu环境搭建
 
 ## License
 

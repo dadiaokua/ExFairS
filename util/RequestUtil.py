@@ -50,7 +50,7 @@ async def process_stream(stream):
 
 async def make_request(openai, experiment, request, start_time=None, request_id=None, priority=None):
     """
-    发送请求 - 自动检测使用直接引擎还是HTTP客户端
+    发送请求 - 自动检测使用直接引擎或HTTP客户端
     """
     # 检查是否有直接的vLLM引擎
     if 'vllm_engine' in GLOBAL_CONFIG and GLOBAL_CONFIG['vllm_engine'] is not None:
@@ -95,6 +95,9 @@ async def make_request_direct_engine(engine, experiment, request, start_time=Non
         client_id = getattr(experiment.client, 'client_id', 'unknown_client')
         experiment.logger.debug(f"Client {client_id}: 开始处理请求 {request_id}")
 
+        # 🔥 支持两种数据格式：字典（提取prompt）或字符串
+        actual_prompt = request.get('prompt', request) if isinstance(request, dict) else request
+
         # 准备请求参数
         sampling_params = SamplingParams(
             n=1,
@@ -104,7 +107,7 @@ async def make_request_direct_engine(engine, experiment, request, start_time=Non
         )
 
         # 发送请求到引擎 - 注意这里返回的是异步生成器
-        request_generator = engine.generate(request, sampling_params, request_id)
+        request_generator = engine.generate(actual_prompt, sampling_params, request_id)
 
         # 使用async for迭代异步生成器获取最终结果，并设置超时
         request_output = None
@@ -234,10 +237,13 @@ async def make_request_http_client(client, experiment, request, start_time=None,
         if hasattr(experiment, 'client') and hasattr(experiment.client, 'register_request_id'):
             experiment.client.register_request_id(request_id)
 
+        # 🔥 支持两种数据格式：字典（提取prompt）或字符串
+        actual_prompt = request.get('prompt', request) if isinstance(request, dict) else request
+
         # 使用log_request=False参数来禁止在日志中打印请求内容
         stream = await client.chat.completions.create(
             model=GLOBAL_CONFIG['request_model_name'],
-            messages=[{"role": "user", "content": request}],
+            messages=[{"role": "user", "content": actual_prompt}],
             max_tokens=experiment.output_tokens,
             stream=True
             # 注意：移除 extra_headers，因为 OpenAI 客户端可能不支持

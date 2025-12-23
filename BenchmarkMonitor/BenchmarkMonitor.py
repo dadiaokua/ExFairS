@@ -90,10 +90,16 @@ class ExperimentMonitor:
         # 设置公平性调整策略映射
         self.fairness_strategies = {
             "LFS": is_fairness_LFSLLM,
+            "ExFairS": is_fairness_LFSLLM,
             # "VTC": is_fairness_VTC,
             "QUEUE_LFS": is_fairness_LFSLLM,
+            "QUEUE_ExFairS": is_fairness_LFSLLM,
             "QUEUE_MINQUE": is_fairness_QUE,
             # "QUEUE_VTC": is_fairness_VTC,
+            "Justitia": is_fairness_LFSLLM,  # Justitia uses similar fairness calculation
+            "SLOGreedy": is_fairness_LFSLLM,  # SLOGreedy uses similar fairness calculation
+            "QUEUE_Justitia": is_fairness_LFSLLM,
+            "QUEUE_SLOGreedy": is_fairness_LFSLLM,
         }
 
     def _setup_logger(self):
@@ -226,8 +232,14 @@ class ExperimentMonitor:
         """处理完整一轮的结果"""
         try:
             # 计算公平性
-            f_result, s_result = await self._calculate_fairness()
-            self.logger.info(f"Fairness calculation complete: {f_result}, {s_result}")
+            jains_indices, s_result = await self._calculate_fairness()
+            
+            # jains_indices is now a dict with keys: safi, token, slo_violation
+            self.logger.info(f"Fairness calculation complete:")
+            self.logger.info(f"  SAFI JAIN: {jains_indices['safi']:.4f}")
+            self.logger.info(f"  Token JAIN: {jains_indices['token']:.4f}")
+            self.logger.info(f"  SLO Violation JAIN: {jains_indices['slo_violation']:.4f}")
+            self.logger.info(f"  Service result: {s_result}")
             
             # 根据配置决定是否进行公平性调整
             if "LFS" in self.exp_type or "QUE" in self.exp_type:
@@ -237,8 +249,8 @@ class ExperimentMonitor:
                 self.logger.info("Skipping fairness adjustment (FCFS)")
             
             # 保存结果
-            self.logger.info(f"Saving results... {f_result}, {s_result}, {exchange_count}")
-            self._save_results(f_result, s_result, exchange_count)
+            self.logger.info(f"Saving results... {jains_indices}, {s_result}, {exchange_count}")
+            self._save_results(jains_indices, s_result, exchange_count)
             self.logger.info("Results saved successfully")
             
             # 重置客户端
@@ -277,8 +289,14 @@ class ExperimentMonitor:
         return exchange_count
 
     @timing_decorator
-    def _save_results(self, f_result, s_result, exchange_count):
-        """保存结果到文件"""
+    def _save_results(self, jains_indices, s_result, exchange_count):
+        """保存结果到文件
+        
+        Args:
+            jains_indices: Dictionary with keys 'safi', 'token', 'slo_violation'
+            s_result: Service result
+            exchange_count: Number of resource exchanges
+        """
         try:
             self.logger.info("Starting to save results...")
             results_file = self.results_file
@@ -286,11 +304,12 @@ class ExperimentMonitor:
             # 确保结果文件存在
             os.makedirs(os.path.dirname(results_file), exist_ok=True)
             
-            # 保存结果
-            save_results(exchange_count, f_result, s_result, results_file)
-            self.fairness_results.append((f_result, s_result))
+            # 保存结果 - 传递完整的jains_indices字典
+            save_results(exchange_count, jains_indices, s_result, results_file)
+            self.fairness_results.append((jains_indices, s_result))
             
-            self.logger.info(f"Results saved to {results_file}: {f_result}, {s_result}")
+            self.logger.info(f"Results saved to {results_file}: SAFI={jains_indices['safi']:.4f}, "
+                           f"Token={jains_indices['token']:.4f}, SLO={jains_indices['slo_violation']:.4f}")
             return True
         except Exception as e:
             self.logger.error(f"Error saving results: {str(e)}", exc_info=True)

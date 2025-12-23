@@ -57,6 +57,7 @@ def parse_args(logger):
     parser.add_argument('--round', type=int, default=5, help='Number of benchmark rounds')
     parser.add_argument('--round_time', type=int, default=300, help='Time limit per round in seconds')
     parser.add_argument('--exp', type=str, default="LFS", help='Experiment type')
+    parser.add_argument('--scenario', type=str, default="default_scenario", help='Scenario name for result organization')
     parser.add_argument('--use_time_data', type=int, default=0, help='Use time data (0 or 1)')
     
     # 模型和tokenizer参数
@@ -178,7 +179,7 @@ def print_benchmark_config(args, logger):
     logger.info(f"Tokenizer: {args.tokenizer}")
     logger.info(f"Request Model Name: {args.request_model_name}")
     
-    # 如果启动引擎，显示引擎配置
+    # 显示后端配置
     if getattr(args, 'start_engine', True):
         logger.info("=== vLLM Engine Configuration ===")
         logger.info(f"Model Path: {args.model_path}")
@@ -192,6 +193,9 @@ def print_benchmark_config(args, logger):
         logger.info(f"Swap Space: {args.swap_space}")
         logger.info(f"Data Type: {args.dtype}")
         logger.info(f"Quantization: {args.quantization}")
+    else:
+        logger.info("=== HTTP Client Configuration ===")
+        logger.info(f"Using external vLLM server at: {args.vllm_url}")
     
     logger.info("===============================")
 

@@ -10,20 +10,34 @@ import datetime
 from util.FileSaveUtil import save_to_file
 
 
-def calculate_Jains_index(clients, exp_type):
+def calculate_Jains_index(clients, exp_type, metric_name="fairness_ratio", values=None):
     """
-    Calculates Jain's Fairness Index for a list of clients based on their fairness_ratio.
-    Since fairness_ratio is "smaller is better", we first normalize the ratios,
-    then use (1 - normalized_ratio) to calculate the index.
+    Calculates Jain's Fairness Index for a list of clients based on a given metric.
+    
+    Args:
+        clients: List of client objects
+        exp_type: Experiment type
+        metric_name: Name of the metric being calculated (for logging)
+        values: Optional list of values to use. If None, uses client.fairness_ratio
+                For "smaller is better" metrics, we normalize and transform (1 - normalized_value)
+    
     Logs the calculation details with a timestamp to a file.
     """
     timestamp = datetime.datetime.now().isoformat()
     log_entry_prefix = f"[{timestamp}] "
 
-    fairness_ratio = [client.fairness_ratio for client in clients]  # Corrected typo: clienr -> client
-    n = len(fairness_ratio)
+    # Use provided values or default to fairness_ratio
+    if values is None:
+        metric_values = [client.fairness_ratio for client in clients]
+        is_smaller_better = True  # fairness_ratio is "smaller is better"
+    else:
+        metric_values = values
+        # Determine if metric is "smaller is better" based on metric_name
+        is_smaller_better = metric_name in ["fairness_ratio", "slo_violation_ratio"]
+    
+    n = len(metric_values)
 
-    log_message = f"{log_entry_prefix}Calculating Jain's Index for {n} clients. Original Fairness Ratios: {fairness_ratio}. "
+    log_message = f"{log_entry_prefix}Calculating Jain's Index ({metric_name}) for {n} clients. Original values: {metric_values}. "
 
     if n == 0:
         j = 0  # Avoid division by zero, define result as 0 for no clients
@@ -33,36 +47,42 @@ def calculate_Jains_index(clients, exp_type):
         j = 1.0
         log_message += f"Result: {j} (single client, perfect fairness)."
     else:
-        # Step 1: Normalize fairness ratios
-        min_ratio = min(fairness_ratio)
-        max_ratio = max(fairness_ratio)
+        # Step 1: Normalize values
+        min_value = min(metric_values)
+        max_value = max(metric_values)
 
-        log_message += f"Min ratio: {min_ratio}, Max ratio: {max_ratio}. "
+        log_message += f"Min value: {min_value}, Max value: {max_value}. "
 
-        if max_ratio == min_ratio:
-            # All ratios are equal, perfect fairness
-            normalized_ratios = [0.0] * n  # All normalized to 0
-            transformed_ratios = [1.0] * n  # All transformed to 1
-            log_message += f"All ratios equal, perfect fairness. Normalized ratios: {normalized_ratios}, Transformed ratios: {transformed_ratios}. "
+        if max_value == min_value:
+            # All values are equal, perfect fairness
+            normalized_values = [0.0] * n  # All normalized to 0
+            transformed_values = [1.0] * n  # All transformed to 1
+            log_message += f"All values equal, perfect fairness. Normalized values: {normalized_values}, Transformed values: {transformed_values}. "
         else:
-            # Normalize to [0, 1] range: (ratio - min) / (max - min)
-            normalized_ratios = [(ratio - min_ratio) / (max_ratio - min_ratio) for ratio in fairness_ratio]
-            log_message += f"Normalized ratios: {normalized_ratios}. "
+            # Normalize to [0, 1] range: (value - min) / (max - min)
+            normalized_values = [(value - min_value) / (max_value - min_value) for value in metric_values]
+            log_message += f"Normalized values: {normalized_values}. "
 
-            # Step 2: Transform normalized ratios (1 - normalized_ratio)
-            # Since smaller fairness_ratio is better, we want larger transformed values for better performance
-            transformed_ratios = [1 - normalized_ratio for normalized_ratio in normalized_ratios]
-            log_message += f"Transformed ratios (1 - normalized): {transformed_ratios}. "
+            # Step 2: Transform normalized values based on metric direction
+            if is_smaller_better:
+                # For "smaller is better" metrics: 1 - normalized_value
+                # Larger transformed values indicate better performance
+                transformed_values = [1 - normalized_value for normalized_value in normalized_values]
+                log_message += f"Transformed values (1 - normalized, smaller is better): {transformed_values}. "
+            else:
+                # For "larger is better" metrics: use normalized values directly
+                transformed_values = normalized_values
+                log_message += f"Transformed values (normalized, larger is better): {transformed_values}. "
 
-        # Step 3: Calculate Jain's Index using transformed ratios
-        sum_service = sum(transformed_ratios)
-        sum_squares = sum(s ** 2 for s in transformed_ratios)
+        # Step 3: Calculate Jain's Index using transformed values
+        sum_service = sum(transformed_values)
+        sum_squares = sum(s ** 2 for s in transformed_values)
         denominator = n * sum_squares
 
-        log_message += f"Sum(transformed_ratios): {sum_service}, Sum(transformed_ratios^2): {sum_squares}, Denominator (n * Sum(transformed_ratios^2)): {denominator}. "
+        log_message += f"Sum(transformed_values): {sum_service}, Sum(transformed_values^2): {sum_squares}, Denominator (n * Sum(transformed_values^2)): {denominator}. "
 
         if denominator == 0:
-            # Handle division by zero. This should not happen with proper transformed ratios,
+            # Handle division by zero. This should not happen with proper transformed values,
             # but we handle it for safety
             j = 0
             log_message += f"Result: {j} (Denominator is zero - unexpected case)."
@@ -205,10 +225,40 @@ async def fairness_result(clients, exp_type, logger):
             client.que = GLOBAL_CONFIG.get('que_throughput', 0.3) * client.Norm_throughput - GLOBAL_CONFIG.get(
                 'que_latency', 0.4) * client.Norm_latency - GLOBAL_CONFIG.get('que_cost', 0.3) * client.Norm_cost
 
-    # Calculate Jain's fairness index
-    tmp_jains_index = calculate_Jains_index(clients, exp_type)
-
-    return tmp_jains_index, service
+    # Calculate multiple Jain's fairness indices
+    
+    # 1. SAFI - Service-Aware Fairness Index (based on fairness_ratio)
+    safi_jains_index = calculate_Jains_index(clients, exp_type, metric_name="SAFI_fairness_ratio")
+    
+    # 2. Token-based Jain's Index (input + 2*output)
+    token_values = []
+    for client in clients:
+        latest_result = client.results[-1]
+        token_value = latest_result["total_input_tokens"] + 2 * latest_result["total_output_tokens"]
+        token_values.append(token_value)
+    token_jains_index = calculate_Jains_index(clients, exp_type, metric_name="token_count", values=token_values)
+    
+    # 3. SLO Violation Ratio-based Jain's Index
+    slo_violation_ratios = []
+    for client in clients:
+        total_requests = client.results[-1]['total_requests']
+        if total_requests > 0:
+            slo_ratio = client.slo_violation_count / total_requests
+        else:
+            slo_ratio = 0.0
+        slo_violation_ratios.append(slo_ratio)
+    slo_jains_index = calculate_Jains_index(clients, exp_type, metric_name="slo_violation_ratio", values=slo_violation_ratios)
+    
+    logger.info(f"[Fairness] JAIN Indices - SAFI: {safi_jains_index:.4f}, Token: {token_jains_index:.4f}, SLO Violation: {slo_jains_index:.4f}")
+    
+    # Return all three indices as a dictionary along with service info
+    jains_indices = {
+        "safi": safi_jains_index,
+        "token": token_jains_index,
+        "slo_violation": slo_jains_index
+    }
+    
+    return jains_indices, service
 
 
 async def is_fairness_LFSLLM(clients, exp_type):

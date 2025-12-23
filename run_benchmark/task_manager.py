@@ -43,14 +43,51 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
 
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
 
-    # 加载预格式化的prompt数据
-    with open("prompt_hub/short_prompts.json", "r", encoding="utf-8") as f:
+    # 加载原始prompt数据集
+    logger.info("📂 加载prompt数据集...")
+    
+    # 使用原始prompt数据集（固定输出长度）
+    short_prompts_file = "prompt_hub/short_prompts.json"
+    long_prompts_file = "prompt_hub/long_prompts.json"
+    
+    # 检查数据集是否存在
+    if not os.path.exists(short_prompts_file) or not os.path.exists(long_prompts_file):
+        logger.error(f"❌ Prompt数据集不存在")
+        logger.info(f"   需要的文件:")
+        logger.info(f"   - {short_prompts_file}")
+        logger.info(f"   - {long_prompts_file}")
+                    raise FileNotFoundError("ShareGPT数据集不存在且生成失败")
+            except Exception as e:
+                logger.error(f"❌ 自动生成数据集失败: {e}")
+                logger.info("   请手动运行: python3 scripts/prepare_sharegpt_dataset.py")
+                raise FileNotFoundError("ShareGPT数据集不存在")
+        
+        # 加载ShareGPT数据集
+        with open(sharegpt_short_file, "r", encoding="utf-8") as f:
+            short_formatted_json = json.load(f)
+        
+        with open(sharegpt_long_file, "r", encoding="utf-8") as f:
+            long_formatted_json = json.load(f)
+        
+        mix_formatted_json = short_formatted_json + long_formatted_json
+        
+        logger.info(f"✅ ShareGPT数据集加载完成:")
+        logger.error(f"   缺少必要的数据集文件")
+        raise FileNotFoundError(f"Required prompt files not found")
+    
+    # 加载prompt数据集
+    with open(short_prompts_file, "r", encoding="utf-8") as f:
         short_formatted_json = json.load(f)
 
-    with open("prompt_hub/long_prompts.json", "r", encoding="utf-8") as f:
+    with open(long_prompts_file, "r", encoding="utf-8") as f:
         long_formatted_json = json.load(f)
 
     mix_formatted_json = short_formatted_json + long_formatted_json
+    
+    logger.info(f"✅ 数据集加载完成:")
+    logger.info(f"   短prompt: {len(short_formatted_json)} 条")
+    logger.info(f"   长prompt: {len(long_formatted_json)} 条")
+    logger.info(f"   总计: {len(mix_formatted_json)} 条")
     
     random.shuffle(mix_formatted_json)
 
@@ -63,10 +100,14 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
         # 根据实验类型选择队列策略
         strategy_map = {
             "QUEUE_FIFO": QueueStrategy.FIFO,
+            "QUEUE_FCFS": QueueStrategy.FIFO,
             "QUEUE_LFS": QueueStrategy.PRIORITY,
+            "QUEUE_ExFairS": QueueStrategy.PRIORITY,  # ExFairS uses priority-based scheduling
             "QUEUE_ROUND_ROBIN": QueueStrategy.ROUND_ROBIN,
             "QUEUE_VTC": QueueStrategy.VTC,
-            "QUEUE_MINQUE": QueueStrategy.PRIORITY
+            "QUEUE_MINQUE": QueueStrategy.PRIORITY,
+            "QUEUE_Justitia": QueueStrategy.JUSTITIA,  # Justitia virtual time scheduling
+            "QUEUE_SLOGreedy": QueueStrategy.SLO_GREEDY  # SLO violation rate greedy scheduling
         }
 
         strategy = strategy_map.get(args.exp, QueueStrategy.FIFO)

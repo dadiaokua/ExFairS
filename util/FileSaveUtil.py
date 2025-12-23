@@ -5,15 +5,37 @@ import logging
 
 
 def save_results(exchange_count, f_result, s_result, RESULTS_FILE, logger=None):
-    """将公平性结果追加写入 JSON 文件"""
+    """将公平性结果追加写入 JSON 文件
+    
+    Args:
+        exchange_count: Number of resource exchanges
+        f_result: Can be either a float (old format) or dict with keys 'safi', 'token', 'slo_violation'
+        s_result: Service result
+        RESULTS_FILE: Path to results file
+        logger: Optional logger
+    """
     # 获取当前时间
     formatted_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-    new_entry = {
-        "f_result": f_result,
-        "s_result": s_result,
-        "time": formatted_time,
-        "exchange_count": exchange_count
-    }
+    
+    # Handle both old format (float) and new format (dict)
+    if isinstance(f_result, dict):
+        new_entry = {
+            "jains_index_safi": f_result.get("safi", 0),
+            "jains_index_token": f_result.get("token", 0),
+            "jains_index_slo_violation": f_result.get("slo_violation", 0),
+            "f_result": f_result.get("safi", 0),  # Keep for backward compatibility
+            "s_result": s_result,
+            "time": formatted_time,
+            "exchange_count": exchange_count
+        }
+    else:
+        # Old format compatibility
+        new_entry = {
+            "f_result": f_result,
+            "s_result": s_result,
+            "time": formatted_time,
+            "exchange_count": exchange_count
+        }
 
     # 读取原有内容并追加
     if os.path.exists(RESULTS_FILE) and os.path.getsize(RESULTS_FILE) > 0:

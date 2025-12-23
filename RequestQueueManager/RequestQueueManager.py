@@ -37,7 +37,10 @@ class QueueStrategy(Enum):
     ROUND_ROBIN = "round_robin"  # 轮询
     SHORTEST_JOB_FIRST = "sjf"  # 最短作业优先
     MIN_QUE = "min_que"  # 公平共享
-    VTC = "vtc"
+    FAIR_SHARE = "fair_share"  # 公平共享（别名）
+    VTC = "vtc"  # Variable Token Credits
+    JUSTITIA = "justitia"  # Justitia虚拟时间调度
+    SLO_GREEDY = "slo_greedy"  # SLO违约率贪心调度
 
 
 @dataclass
@@ -97,6 +100,17 @@ class RequestQueueManager:
 
         # 优化：维护优先级分布的缓存，避免每次重新计算
         self.priority_distribution_cache = {}  # {priority: count}
+        
+        # Justitia 策略专用：最小堆维护虚拟完成时间
+        self.justitia_heap = []  # 最小堆: [(virtual_finish_time, request)]
+        self.justitia_lock = asyncio.Lock()  # 保护堆操作
+        self.justitia_virtual_time = 0.0  # 系统虚拟时间 V(t)
+        self.justitia_active_tasks = 0  # 当前活跃任务数 N_t
+        self.justitia_total_memory = 100000  # 总显存容量 M（抽象单位）
+        
+        # SLO Greedy 策略专用：维护客户端 SLO 违约统计
+        self.slo_greedy_heap = []  # 最小堆: [(-violation_rate, request)]
+        self.slo_greedy_lock = asyncio.Lock()  # 保护堆操作
 
         # 统计信息
         self.total_requests_processed = 0
@@ -542,6 +556,55 @@ class RequestQueueManager:
                 
                 self.logger.debug(f"Submitted request {request_id} from {client_id} to client queue "
                                 f"(queue_size: {self.client_queues[client_id].qsize()}, put_time: {queue_put_time:.3f}s)")
+            
+            elif self.strategy == QueueStrategy.JUSTITIA:
+                # Justitia策略：计算虚拟完成时间并插入最小堆
+                import heapq
+                
+                async with self.justitia_lock:
+                    # 更新系统虚拟时间 V(t) = M / N_t
+                    self.justitia_active_tasks = len(self.justitia_heap) + 1
+                    self.justitia_virtual_time = self.justitia_total_memory / self.justitia_active_tasks
+                    
+                    # 估算任务资源需求 C_j (使用input * output + output * output / 2 作为近似)
+                    # 如果有更精确的MLP预测，可以在这里替换
+                    if isinstance(request_content, dict):
+                        estimated_cost = request_content.get('input_tokens', 0) * request_content.get('output_tokens', 0) + request_content.get('output_tokens', 0) * request_content.get('output_tokens', 0) / 2
+                    else:
+                        # 默认估算
+                        estimated_cost = 0  
+                    
+                    # 计算虚拟完成时间 f_j = V(a_j) + C_j
+                    virtual_finish_time = self.justitia_virtual_time + estimated_cost
+                    
+                    # 插入最小堆
+                    heapq.heappush(self.justitia_heap, (virtual_finish_time, request))
+                    
+                    self.logger.info(f"[Justitia] Request {request_id}: V(t)={self.justitia_virtual_time:.2f}, "
+                                   f"C_j={estimated_cost}, f_j={virtual_finish_time:.2f}, heap_size={len(self.justitia_heap)}")
+            
+            elif self.strategy == QueueStrategy.SLO_GREEDY:
+                # SLO Greedy策略：根据客户端SLO违约率插入最小堆
+                import heapq
+                
+                async with self.slo_greedy_lock:
+                    # 获取客户端的SLO违约率
+                    client_stats = self.client_stats.get(client_id, {})
+                    total_requests = client_stats.get('total_requests', 1)
+                    # 注意：这里我们需要从实验对象中获取slo_violation_count
+                    # 暂时使用failed_requests作为近似
+                    slo_violations = client_stats.get('failed_requests', 0)
+                    violation_rate = slo_violations / max(total_requests, 1)
+                    
+                    # 使用负的violation_rate，因为heapq是最小堆，我们要violation_rate高的优先
+                    priority_key = -violation_rate
+                    
+                    # 插入最小堆
+                    heapq.heappush(self.slo_greedy_heap, (priority_key, time.time(), request))
+                    
+                    self.logger.info(f"[SLO Greedy] Request {request_id} from {client_id}: "
+                                   f"violation_rate={violation_rate:.3f}, heap_size={len(self.slo_greedy_heap)}")
+            
             else:
                 # 其他策略使用普通队列
                 queue_put_start_time = time.time()
@@ -598,6 +661,10 @@ class RequestQueueManager:
             result = await self._get_fair_share_request()
         elif self.strategy == QueueStrategy.VTC:
             result = await self._get_vtc_request()
+        elif self.strategy == QueueStrategy.JUSTITIA:
+            result = await self._get_justitia_request()
+        elif self.strategy == QueueStrategy.SLO_GREEDY:
+            result = await self._get_slo_greedy_request()
         else:
             self.logger.warning(f"Unknown strategy {self.strategy}, falling back to FIFO")
             result = await self._get_fifo_request()
@@ -786,6 +853,48 @@ class RequestQueueManager:
                            f"(client tokens: {min_tokens})")
 
         return min_tokens_request
+
+    async def _get_justitia_request(self) -> Optional[QueuedRequest]:
+        """Justitia策略：从最小堆中取出虚拟完成时间最小的请求"""
+        import heapq
+        
+        async with self.justitia_lock:
+            if not self.justitia_heap:
+                self.logger.debug("Justitia: Heap is empty")
+                return None
+            
+            # 从最小堆中取出f_j最小的请求
+            virtual_finish_time, request = heapq.heappop(self.justitia_heap)
+            
+            # 更新活跃任务数
+            self.justitia_active_tasks = len(self.justitia_heap)
+            
+            # 更新虚拟时间
+            if self.justitia_active_tasks > 0:
+                self.justitia_virtual_time = self.justitia_total_memory / self.justitia_active_tasks
+            
+            self.logger.info(f"[Justitia] Selected request {request.request_id} with f_j={virtual_finish_time:.2f}, "
+                           f"remaining_tasks={self.justitia_active_tasks}, new_V(t)={self.justitia_virtual_time:.2f}")
+            
+            return request
+    
+    async def _get_slo_greedy_request(self) -> Optional[QueuedRequest]:
+        """SLO Greedy策略：从最小堆中取出SLO违约率最高的客户端的请求"""
+        import heapq
+        
+        async with self.slo_greedy_lock:
+            if not self.slo_greedy_heap:
+                self.logger.debug("SLO Greedy: Heap is empty")
+                return None
+            
+            # 从最小堆中取出（负的violation_rate最小，即violation_rate最大的）
+            neg_violation_rate, submit_time, request = heapq.heappop(self.slo_greedy_heap)
+            violation_rate = -neg_violation_rate
+            
+            self.logger.info(f"[SLO Greedy] Selected request {request.request_id} from {request.client_id}, "
+                           f"violation_rate={violation_rate:.3f}, heap_size={len(self.slo_greedy_heap)}")
+            
+            return request
 
     async def _process_request(self, request: QueuedRequest, worker_name) -> Any:
         """处理单个请求"""
