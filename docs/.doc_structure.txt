@@ -1,0 +1,58 @@
+# 文档结构说明
+
+本项目文档已精简为 6 个核心文档，避免碎片化：
+
+## 核心文档列表
+
+1. README.md (本目录索引)
+   - 文档导航
+   - 快速参考
+   - 调度策略说明
+   - 场景配置说明
+
+2. QUICKSTART.md
+   - 5分钟快速入门
+   - 基本命令
+   - 简单示例
+
+3. QUICK_REFERENCE.md
+   - 命令速查表
+   - 参数说明
+   - 常用操作
+
+4. Visualization_Guide.md
+   - 可视化工具使用
+   - 结果解读
+   - 图表说明
+
+5. CRITICAL_FIXES_APPLIED.md
+   - Bug修复记录
+   - 性能优化
+   - 功能改进
+   - 问题排查
+
+6. UBUNTU_SETUP_GUIDE.md
+   - Ubuntu环境搭建
+   - 依赖安装
+   - 常见问题
+
+## 已删除的冗余文档
+
+以下文档已整合到上述核心文档中：
+- CLEANUP_SUMMARY.md → CRITICAL_FIXES_APPLIED.md
+- DOCS_MAP.md → README.md
+- DOCUMENTATION_INDEX.md → README.md
+- Multi_JAIN_Index_Enhancement.md → CRITICAL_FIXES_APPLIED.md
+- RESULT_VISUALIZATION_UPDATE.md → Visualization_Guide.md
+- HOTFIX_20251223.md → CRITICAL_FIXES_APPLIED.md
+
+## 文档维护原则
+
+1. **不再创建新的临时文档** - 所有更新直接写入核心文档
+2. **修复记录统一管理** - 所有bug修复写入 CRITICAL_FIXES_APPLIED.md
+3. **功能说明整合** - 新功能说明整合到相关核心文档
+4. **避免重复内容** - 定期检查并合并重复内容
+
+---
+最后更新: 2025-12-23
+

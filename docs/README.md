@@ -6,7 +6,7 @@
 
 ## 📚 核心文档
 
-### 1. [快速开始](../QUICKSTART.md) ⭐
+### 1. [快速开始](QUICKSTART.md) ⭐
 > 5分钟快速上手指南
 
 **适合**：新用户快速入门
@@ -16,48 +16,26 @@
 ### 2. [快速参考](QUICK_REFERENCE.md) 🔖
 > 常用命令和参数速查表
 
-**包含**：
-- 常用命令
-- 参数说明
-- 实验类型
-- 快速示例
-
 **适合**：日常使用查询
 
 ---
 
-### 3. [可视化指南](VISUALIZATION_GUIDE.md) 📊
+### 3. [可视化指南](Visualization_Guide.md) 📊
 > 结果图表生成和解读
-
-**包含**：
-- 结果存储结构说明
-- 新版可视化工具使用
-- 性能和公平性指标解读
-- 示例数据生成
 
 **适合**：分析实验结果
 
 ---
 
-### 4. [多维度公平性指标](Multi_JAIN_Index_Enhancement.md) 📐
-> JAIN 公平性指数详解
+### 4. [修复与改进记录](CRITICAL_FIXES_APPLIED.md) 🔧
+> 所有bug修复和性能优化记录
 
-**包含**：
-- SAFI (Service-Aware Fairness Index)
-- Token-based JAIN Index
-- SLO Violation JAIN Index
-
-**适合**：深入理解公平性评估
+**适合**：了解项目演进和问题解决
 
 ---
 
 ### 5. [Ubuntu 环境搭建](UBUNTU_SETUP_GUIDE.md) 🖥️
 > Ubuntu 系统环境配置
-
-**包含**：
-- 依赖安装
-- 环境配置
-- 常见问题
 
 **适合**：Ubuntu 部署
 
@@ -146,12 +124,27 @@ results/
 
 ---
 
-## 🔗 外部链接
+## 🔗 相关链接
 
 - [主 README](../README.md) - 项目完整说明
-- [快速开始](../QUICKSTART.md) - 5分钟入门
+- [修复记录](CRITICAL_FIXES_APPLIED.md) - Bug修复和改进历史
+
+---
+
+## 📝 文档精简说明
+
+本项目文档已精简为 **5个核心文档**：
+
+1. **README.md** (本文件) - 文档索引和快速参考
+2. **QUICKSTART.md** - 快速入门指南
+3. **QUICK_REFERENCE.md** - 命令速查表
+4. **Visualization_Guide.md** - 可视化指南
+5. **CRITICAL_FIXES_APPLIED.md** - 修复与改进记录
+6. **UBUNTU_SETUP_GUIDE.md** - Ubuntu环境搭建
+
+所有其他文档已整合到以上文档中，避免碎片化。
 
 ---
 
 **文档位置**：`docs/` 目录  
-**最后更新**：2025-12-22
+**最后更新**：2025-12-23

@@ -1,9 +1,105 @@
-# 关键问题修复报告
+# 项目修复与改进记录
 
-**修复时间**: 2025-12-23  
-**基于**: 项目深度分析报告
+**最后更新**: 2025-12-23  
+**项目**: vllm-benchmark (ExFairS)
+
+本文档记录所有重要的bug修复、性能优化和功能改进。
 
 ---
+
+## 📋 目录
+
+1. [2025-12-23 紧急修复](#2025-12-23-紧急修复)
+2. [2025-12-23 深度分析修复](#2025-12-23-深度分析修复)
+3. [历史改进](#历史改进)
+
+---
+
+## 2025-12-23 紧急修复
+
+### 🔴 修复5: Justitia 成本估算错误
+
+**症状**:
+```
+[Justitia] Request req_xxx: V(t)=100000.00, C_j=0, f_j=100000.00
+```
+- 所有请求的成本 `C_j=0`
+- 所有请求的虚拟完成时间相同
+- Justitia 退化为 FIFO
+
+**根本原因**: 代码尝试从 `request_content` (字符串) 中获取 token 信息，但它不是 dict
+
+**修复方案**:
+```python
+# 从 experiment 对象获取输出token数
+if hasattr(experiment, 'output_tokens'):
+    output_tokens = experiment.output_tokens
+else:
+    output_tokens = 256
+
+# 从 request_content 估算输入token数
+if isinstance(request_content, str):
+    input_tokens = len(request_content) // 4
+else:
+    input_tokens = 100
+
+# 计算成本：KV cache 内存占用近似
+estimated_cost = input_tokens * output_tokens + (output_tokens * output_tokens) / 2
+```
+
+**代码位置**: `RequestQueueManager.py:587-610`
+
+**效果**: Justitia 现在能正确计算任务成本，实现短任务优先调度
+
+---
+
+### 🔴 修复6: 批量大小过小导致请求堆积
+
+**症状**:
+```
+Total requests: 49, Completed: 0, Failed: 49
+Success rate: 0.00%
+```
+
+**根本原因**: `MAX_BATCH_SIZE = 10` 太小，Worker 每秒只能处理10个请求，但提交速度远超这个数
+
+**修复方案**: 
+- 初始修复: `MAX_BATCH_SIZE = 32`
+- 用户调整: `MAX_BATCH_SIZE = 128`
+
+**代码位置**: `RequestQueueManager/constants.py:10`
+
+**效果**: 请求处理速度提升，不再堆积超时
+
+---
+
+### 🔴 修复7: Justitia 总内存使用真实GPU显存
+
+**用户改进**: 从硬编码的 `100000` 改为读取真实GPU显存
+
+**实现**:
+```python
+import subprocess
+try:
+    output = subprocess.check_output(
+        ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"], 
+        encoding='utf-8'
+    )
+    # 累加所有 GPU 的总显存
+    self.justitia_total_memory = sum(int(line.strip()) for line in output.strip().split('\n') if line.strip())
+except Exception:
+    self.justitia_total_memory = 262144  # 默认 8 * 32 * 1024 MB (8卡 V100 32G)
+```
+
+**代码位置**: `RequestQueueManager.py:107-114`
+
+**效果**: 虚拟时间计算更准确，反映真实硬件资源
+
+---
+
+## 2025-12-23 深度分析修复
+
+基于项目深度分析报告，修复了以下严重问题：
 
 ## ✅ 已修复的严重问题 (P0-P1)
 

@@ -115,7 +115,13 @@ class RequestQueueManager:
         self.justitia_lock = asyncio.Lock()  # 保护堆操作
         self.justitia_virtual_time = 0.0  # 系统虚拟时间 V(t)
         self.justitia_active_tasks = 0  # 当前活跃任务数 N_t
-        self.justitia_total_memory = 100000  # 总显存容量 M（抽象单位）
+        import subprocess
+        try:
+            output = subprocess.check_output(["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"], encoding='utf-8')
+            # 累加所有 GPU 的总显存
+            self.justitia_total_memory = sum(int(line.strip()) for line in output.strip().split('\n') if line.strip())
+        except Exception:
+            self.justitia_total_memory = 262144  # 默认 8 * 32 * 1024 MB (8卡 V100 32G)
         self.justitia_running_tasks = set()  # 正在执行的任务ID集合
         
         # SLO Greedy 策略专用：维护客户端 SLO 违约统计
@@ -585,12 +591,29 @@ class RequestQueueManager:
                         self.justitia_virtual_time = self.justitia_total_memory
                     
                     # 估算任务资源需求 C_j (使用input * output + output * output / 2 作为近似)
-                    # 如果有更精确的MLP预测，可以在这里替换
-                    if isinstance(request_content, dict):
-                        estimated_cost = request_content.get('input_tokens', 0) * request_content.get('output_tokens', 0) + request_content.get('output_tokens', 0) * request_content.get('output_tokens', 0) / 2
-                    else:
-                        # 默认估算
-                        estimated_cost = 0  
+                    # 从 experiment 对象获取输出token数
+                    try:
+                        if hasattr(experiment, 'output_tokens'):
+                            output_tokens = experiment.output_tokens
+                        else:
+                            output_tokens = 256  # 默认值
+                        
+                        # 估算输入token数（从request_content长度）
+                        if isinstance(request_content, str):
+                            # 粗略估算：每4个字符约1个token
+                            input_tokens = len(request_content) // 4
+                        else:
+                            input_tokens = 100  # 默认值
+                        
+                        # 计算成本：input * output + output^2 / 2
+                        # 这个公式近似 KV cache 的内存占用
+                        estimated_cost = input_tokens * output_tokens + (output_tokens * output_tokens) / 2
+                        
+                        self.logger.debug(f"[Justitia] Cost estimation for {request_id}: "
+                                        f"input={input_tokens}, output={output_tokens}, cost={estimated_cost:.0f}")
+                    except Exception as e:
+                        self.logger.warning(f"[Justitia] Failed to estimate cost for {request_id}: {e}, using default")
+                        estimated_cost = 10000  # 使用一个合理的默认值  
                     
                     # 计算虚拟完成时间 f_j = V(a_j) + C_j
                     virtual_finish_time = self.justitia_virtual_time + estimated_cost

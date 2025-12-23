@@ -7,7 +7,7 @@ WORKER_SLEEP_INTERVAL = 1.0  # Worker 每轮睡眠时间（秒）
 REQUEST_TIMEOUT_SECONDS = 60.0  # 请求超时时间（秒）
 
 # 批量处理
-MAX_BATCH_SIZE = 10  # 每批最多处理的请求数
+MAX_BATCH_SIZE = 128  # 每批最多处理的请求数（平衡公平性和吞吐量）
 
 # 并发控制
 MAX_CONCURRENCY = 256  # 最大并发请求数（与 vLLM max_num_seqs 对齐）

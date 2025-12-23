@@ -237,7 +237,7 @@ async def fairness_result(clients, exp_type, logger):
         token_value = latest_result["total_input_tokens"] + 2 * latest_result["total_output_tokens"]
         token_values.append(token_value)
     token_jains_index = calculate_Jains_index(clients, exp_type, metric_name="token_count", values=token_values)
-    
+
     # 3. SLO Violation Ratio-based Jain's Index
     slo_violation_ratios = []
     for client in clients:

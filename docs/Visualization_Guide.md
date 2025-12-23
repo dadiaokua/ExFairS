@@ -145,7 +145,7 @@ python3 plotMain.py
 ## 最佳实践
 
 1. **批量运行**: 使用 `run.sh` 的批量模式一次运行多个场景和策略
-   ```bash
+```bash
    ./run.sh -s scenario_I,scenario_II -e QUEUE_ExFairS,QUEUE_Justitia
    ```
 
