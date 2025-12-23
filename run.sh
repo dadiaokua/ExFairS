@@ -48,6 +48,9 @@ show_help() {
   - 6 或 scenario_VI                高并发50客户端 (Mix, QPM=4)
 
 示例:
+  # 默认运行（所有场景 + 所有队列策略）
+  $0
+  
   # 单场景运行（用数字）
   $0 -e QUEUE_ExFairS --scenario 1
   
@@ -59,6 +62,15 @@ show_help() {
   
   # 也可以用完整名称
   $0 -e QUEUE_ExFairS -s scenario_I,scenario_II
+
+默认值:
+  场景: scenario_I,scenario_II,scenario_III,scenario_IV,scenario_V,scenario_VI
+  策略: QUEUE_ExFairS,QUEUE_Justitia,QUEUE_SLOGreedy,QUEUE_VTC,QUEUE_FCFS
+  
+  💡 不加任何参数运行 $0 将按场景分组依次运行：
+     场景1 → 所有策略 → 可视化 → 等待60秒
+     场景2 → 所有策略 → 可视化 → 等待60秒
+     ...
 
 查询选项:
   $0 --list-scenarios          列出所有可用场景
@@ -208,32 +220,63 @@ if [[ "$BATCH_MODE" == true ]]; then
     success_counter=0
     failed_runs=()
     
-    # 批量运行
+    # 批量运行 - 按场景分组，每个场景跑完所有策略后再进行下一个场景
     for scenario in "${SCENARIO_ARRAY[@]}"; do
+        echo "" | tee -a "$LOG_FILE"
+        echo "╔════════════════════════════════════════╗" | tee -a "$LOG_FILE"
+        echo "║  开始场景: $scenario" | tee -a "$LOG_FILE"
+        echo "╚════════════════════════════════════════╝" | tee -a "$LOG_FILE"
+        echo "" | tee -a "$LOG_FILE"
+        
+        scenario_success=0
+        
         for exp in "${EXP_ARRAY[@]}"; do
             run_counter=$((run_counter + 1))
             echo "========================================" | tee -a "$LOG_FILE"
             echo "🚀 运行 $run_counter/$total_runs: $scenario + $exp" | tee -a "$LOG_FILE"
             echo "========================================" | tee -a "$LOG_FILE"
             
-            run_dir="$RUN_RESULTS_DIR/${scenario}_${exp}"
-            mkdir -p "$run_dir"
-            
-            # 调用单场景运行逻辑
-            if $0 -e "$exp" --scenario "$scenario" --output-dir "$run_dir" >> "$LOG_FILE" 2>&1; then
+            # 调用单场景运行逻辑，传递RUN_TIMESTAMP确保所有实验共享同一个run_id
+            # 注意：不要传递 --output-dir，让脚本自动使用 results/$RUN_TIMESTAMP/$scenario/$exp 结构
+            if RUN_TIMESTAMP="$RUN_TIMESTAMP" $0 -e "$exp" --scenario "$scenario" >> "$LOG_FILE" 2>&1; then
                 success_counter=$((success_counter + 1))
+                scenario_success=$((scenario_success + 1))
                 echo "✅ 完成 $run_counter/$total_runs" | tee -a "$LOG_FILE"
             else
                 echo "❌ 失败 $run_counter/$total_runs" | tee -a "$LOG_FILE"
                 failed_runs+=("$scenario + $exp")
             fi
             
-            # 等待
-            if [[ $run_counter -lt $total_runs ]]; then
+            # 策略之间等待
+            if [[ $scenario_success -lt ${#EXP_ARRAY[@]} ]]; then
                 echo "⏱️  等待 30 秒..." | tee -a "$LOG_FILE"
                 sleep 30
             fi
         done
+        
+        # 场景完成，生成可视化
+        echo "" | tee -a "$LOG_FILE"
+        echo "📊 场景 $scenario 完成，生成可视化..." | tee -a "$LOG_FILE"
+        
+        # 调用可视化脚本
+        if [[ -f "$SCRIPT_DIR/scripts/visualize_results.py" ]]; then
+            cd "$SCRIPT_DIR"
+            if python3 scripts/visualize_results.py "$scenario" --run-id "$RUN_TIMESTAMP" --results-dir "$RUN_RESULTS_DIR" >> "$LOG_FILE" 2>&1; then
+                echo "✅ 可视化完成: $RUN_RESULTS_DIR/$scenario/charts/" | tee -a "$LOG_FILE"
+            else
+                echo "⚠️  可视化失败（不影响实验结果）" | tee -a "$LOG_FILE"
+            fi
+        fi
+        
+        echo "" | tee -a "$LOG_FILE"
+        echo "✨ 场景 $scenario 全部完成 ($scenario_success/${#EXP_ARRAY[@]} 成功)" | tee -a "$LOG_FILE"
+        echo "" | tee -a "$LOG_FILE"
+        
+        # 场景之间等待更长时间
+        if [[ $run_counter -lt $total_runs ]]; then
+            echo "⏸️  场景间隔，等待 60 秒..." | tee -a "$LOG_FILE"
+            sleep 60
+        fi
     done
     
     # 总结
@@ -266,7 +309,18 @@ else
     
     [[ -z "$SINGLE_SCENARIO" ]] && SINGLE_SCENARIO="default"
     [[ -z "$EXPERIMENTS" ]] && EXPERIMENTS="QUEUE_ExFairS"
-    [[ -z "$OUTPUT_DIR" ]] && OUTPUT_DIR="$RESULTS_BASE_DIR/$(date +"%Y%m%d_%H%M%S")"
+    
+    # 如果没有指定OUTPUT_DIR，检查是否是批量运行的一部分（通过RUN_TIMESTAMP环境变量）
+    if [[ -z "$OUTPUT_DIR" ]]; then
+        if [[ -n "$RUN_TIMESTAMP" ]]; then
+            # 批量运行的一部分，使用共享的RUN_TIMESTAMP
+            OUTPUT_DIR="$RESULTS_BASE_DIR/$RUN_TIMESTAMP"
+        else
+            # 独立运行，生成新的时间戳
+            RUN_TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+            OUTPUT_DIR="$RESULTS_BASE_DIR/$RUN_TIMESTAMP"
+        fi
+    fi
     
     mkdir -p "$OUTPUT_DIR"
     
@@ -320,6 +374,7 @@ else
             --round_time "$ROUND_TIME" \
             --exp "$internal_exp" \
             --scenario "$SINGLE_SCENARIO" \
+            --run-id "$RUN_TIMESTAMP" \
             --use_time_data "$USE_TIME_DATA" \
             --tokenizer "$TOKENIZER_PATH" \
             --request_model_name "$REQUEST_MODEL_NAME" \

@@ -59,14 +59,25 @@ def save_results_new_format(benchmark_results, fairness_results, args, start_tim
         }
     }
     """
-    # 确定run_id（使用开始时间）
-    run_id = f"run_{datetime.fromtimestamp(start_time).strftime('%Y%m%d_%H%M%S')}"
+    # 确定run_id（优先使用传入的run_id，否则使用开始时间）
+    if hasattr(args, 'run_id') and args.run_id:
+        run_id = args.run_id
+    else:
+        run_id = f"run_{datetime.fromtimestamp(start_time).strftime('%Y%m%d_%H%M%S')}"
     
     # 确定scenario（从args获取）
     scenario = getattr(args, 'scenario', 'default_scenario')
     
-    # 确定strategy（从args.exp获取）
+    # 确定strategy（从args.exp获取，规范化为可视化脚本期望的名称）
     strategy = args.exp.lower().replace('queue_', '')
+    
+    # 策略名称映射（统一命名）
+    strategy_map = {
+        'lfs': 'exfairs',
+        'slogreedy': 'slo_greedy',
+        'round_robin': 'rr'
+    }
+    strategy = strategy_map.get(strategy, strategy)
     
     # 创建目录
     result_dir = Path(f"results/{run_id}/{scenario}/{strategy}")

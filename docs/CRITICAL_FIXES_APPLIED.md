@@ -171,6 +171,90 @@ if max_service == 0:
 
 ---
 
+### 🔧 修复10: 批量运行时每个实验创建独立时间戳目录
+
+**症状**:
+```
+results/20251223_040103/
+├── run_20251223_055351/
+├── run_20251223_050831/
+├── run_20251223_044549/
+└── ... (每个实验一个时间戳文件夹)
+```
+
+**根本原因**: 
+1. `run.sh` 生成了批量运行的 `RUN_TIMESTAMP`，但**没有传递给子进程**
+2. 每次调用 `run_benchmarks.py` 时都会生成新的时间戳
+3. 结果是每个实验都在独立的目录中，无法按批次组织
+
+**期望结构**:
+```
+results/run_20251223_040103/
+├── scenario_I/
+│   ├── exfairs/
+│   │   ├── results.json
+│   │   └── config.json
+│   ├── justitia/
+│   └── vtc/
+└── scenario_II/
+    ├── exfairs/
+    └── justitia/
+```
+
+**修复方案**:
+1. 在 `argument_parser.py` 添加 `--run-id` 参数
+2. 在 `result_processor.py` 优先使用传入的 `run_id`
+3. 在 `run.sh` 批量运行时通过环境变量传递 `RUN_TIMESTAMP`
+4. 在 `run.sh` 单场景运行时检查环境变量，复用同一个 `RUN_TIMESTAMP`
+
+**代码位置**:
+- `run_benchmark/argument_parser.py:61` - 添加 `--run-id` 参数
+- `run_benchmark/result_processor.py:63-67` - 使用传入的 `run_id`
+- `run.sh:213` - 通过环境变量传递 `RUN_TIMESTAMP`
+- `run.sh:265-276` - 单场景运行检查环境变量
+- `run.sh:322` - 传递 `--run-id` 给 Python 脚本
+
+**效果**: 
+- 批量运行的所有实验现在统一组织在 `results/run_YYYYMMDD_HHMMSS/` 目录下
+- 目录结构清晰：`run_id/scenario/strategy/results.json`
+- 便于管理和可视化
+
+**改进**: 
+- 批量运行顺序改为**按场景分组**：先完成一个场景的所有策略，再进行下一个场景
+- 每个场景完成后自动调用可视化脚本生成对比图表
+- 场景之间的等待时间更长（60秒），策略之间等待30秒
+
+**运行顺序**:
+```
+场景1 (scenario_I):
+  ├─ exfairs     → 等待30秒
+  ├─ justitia    → 等待30秒
+  └─ vtc         → 生成可视化 → 等待60秒
+
+场景2 (scenario_II):
+  ├─ exfairs     → 等待30秒
+  ├─ justitia    → 等待30秒
+  └─ vtc         → 生成可视化 → 等待60秒
+```
+
+**策略名称映射**:
+为了统一命名，结果保存时会进行策略名映射：
+- `QUEUE_LFS` → `exfairs`
+- `QUEUE_SLOGreedy` → `slo_greedy`
+- `QUEUE_ROUND_ROBIN` → `rr`
+
+**默认运行**:
+直接运行 `./run.sh` 不加任何参数将：
+- 运行所有6个场景（scenario_I 到 scenario_VI）
+- 对比5个队列策略（ExFairS, Justitia, SLOGreedy, VTC, FCFS）
+- 每个场景完成后自动生成可视化对比图
+
+**代码位置**:
+- `run.sh:211-251` - 批量运行循环（按场景分组）
+- `run_benchmark/result_processor.py:68-77` - 策略名称映射
+
+---
+
 ## 2025-12-23 深度分析修复
 
 基于项目深度分析报告，修复了以下严重问题：

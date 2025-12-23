@@ -58,6 +58,7 @@ def parse_args(logger):
     parser.add_argument('--round_time', type=int, default=300, help='Time limit per round in seconds')
     parser.add_argument('--exp', type=str, default="LFS", help='Experiment type')
     parser.add_argument('--scenario', type=str, default="default_scenario", help='Scenario name for result organization')
+    parser.add_argument('--run-id', type=str, default=None, help='Run ID for batch execution (to group multiple experiments)')
     parser.add_argument('--use_time_data', type=int, default=0, help='Use time data (0 or 1)')
     
     # 模型和tokenizer参数
