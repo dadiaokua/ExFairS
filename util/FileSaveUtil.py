@@ -100,10 +100,34 @@ def save_json(data, filepath, mode='w', indent=2, logger=None):
             print(msg)
 
 
-def save_benchmark_results(filename, benchmark_results, plot_data, logger=None):
-    """保存基准测试结果和绘图数据"""
-    save_json(benchmark_results, os.path.join("results", filename), logger=logger)
-    save_json(plot_data, "tmp_result/plot_data.json", logger=logger)
+def save_benchmark_results(filename, benchmark_results, plot_data, logger=None, result_dir=None):
+    """保存基准测试结果和绘图数据
+    
+    Args:
+        filename: 结果文件名
+        benchmark_results: 基准测试结果
+        plot_data: 绘图数据
+        logger: 可选日志记录器
+        result_dir: 结构化目录路径（如果提供，则保存到该目录）
+    
+    Returns:
+        str: 保存结果的目录路径
+    """
+    if result_dir:
+        # 使用结构化目录
+        os.makedirs(result_dir, exist_ok=True)
+        result_path = os.path.join(result_dir, "benchmark_results.json")
+        plot_data_path = os.path.join(result_dir, "plot_data.json")
+    else:
+        # 兼容旧格式：保存到 results/ 根目录
+        result_path = os.path.join("results", filename)
+        plot_data_path = "tmp_result/plot_data.json"
+    
+    save_json(benchmark_results, result_path, logger=logger)
+    save_json(plot_data, plot_data_path, logger=logger)
+    
+    # 返回保存目录，供 plotMain 使用
+    return os.path.dirname(result_path) if result_dir else "results"
 
 
 def save_exchange_record(record, filepath, logger=None):

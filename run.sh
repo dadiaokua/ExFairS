@@ -393,10 +393,6 @@ else
             
             success_count=$((success_count + 1))
             echo "✅ $exp 完成"
-            
-            # 复制结果
-            cp -r "$SCRIPT_DIR/results/"* "$OUTPUT_DIR/" 2>/dev/null || true
-            cp -r "$SCRIPT_DIR/figure/"* "$OUTPUT_DIR/" 2>/dev/null || true
         else
             echo "❌ $exp 失败"
         fi

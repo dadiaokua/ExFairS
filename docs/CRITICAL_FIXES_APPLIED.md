@@ -252,6 +252,14 @@ results/run_20251223_040103/
 **代码位置**:
 - `run.sh:211-251` - 批量运行循环（按场景分组）
 - `run_benchmark/result_processor.py:68-77` - 策略名称映射
+- `run.sh:395-399` - 删除了旧的结果复制逻辑（不再需要）
+
+**清理旧结果**:
+如果你的 `results/` 目录很乱，可以运行清理脚本：
+```bash
+./scripts/cleanup_old_results.sh
+```
+这会删除所有不符合 `run_YYYYMMDD_HHMMSS` 格式的旧目录。
 
 ---
 

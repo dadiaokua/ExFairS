@@ -62,6 +62,9 @@ def save_results_new_format(benchmark_results, fairness_results, args, start_tim
     # 确定run_id（优先使用传入的run_id，否则使用开始时间）
     if hasattr(args, 'run_id') and args.run_id:
         run_id = args.run_id
+        # 确保 run_id 以 'run_' 开头
+        if not run_id.startswith('run_'):
+            run_id = f"run_{run_id}"
     else:
         run_id = f"run_{datetime.fromtimestamp(start_time).strftime('%Y%m%d_%H%M%S')}"
     
@@ -237,7 +240,7 @@ def process_and_save_results(tasks, start_time, args, logger):
     result_dir = save_results_new_format(benchmark_results, fairness_results, args, start_time, end_time, logger)
     logger.info(f"Results saved to new format directory: {result_dir}")
     
-    # 为了兼容性，也保存旧格式
+    # 为了兼容性，也保存旧格式（但保存到新目录结构中）
     start_datetime = datetime.fromtimestamp(start_time)
     end_datetime = datetime.fromtimestamp(end_time)
     filename = (
@@ -248,11 +251,13 @@ def process_and_save_results(tasks, start_time, args, logger):
     plot_data = {
         "filename": filename,
         "total_time": round(total_time, 2),
+        "result_dir": result_dir,  # 传递结构化目录路径
+        "figure_dir": result_dir,  # 图表保存目录（与结果同目录）
     }
     plot_data.update(args_dict)
     
-    # 保存旧格式（仍然需要用于其他功能）
+    # 保存旧格式到结构化目录（而不是 results/ 根目录）
     from util.FileSaveUtil import save_benchmark_results
-    save_benchmark_results(filename, benchmark_results, plot_data, logger)
+    save_benchmark_results(filename, benchmark_results, plot_data, logger, result_dir=result_dir)
     
     return benchmark_results, total_time, filename, plot_data

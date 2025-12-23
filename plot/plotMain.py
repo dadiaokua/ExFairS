@@ -20,7 +20,7 @@ colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
 markers = ['o', 's', '^', 'D', 'v', '*']
 
 
-def plot_averaged_results(short_results, long_results, args_concurrency, total_time, filename, exp_type):
+def plot_averaged_results(short_results, long_results, args_concurrency, total_time, filename, exp_type, **kwargs):
     # 创建一个4×1的子图布局
     fig2, axs2 = plt.subplots(4, 1, figsize=(14, 20))
 
@@ -125,18 +125,21 @@ def plot_averaged_results(short_results, long_results, args_concurrency, total_t
     # 调整子图间距，为底部图例留出空间
     fig2.subplots_adjust(top=0.92, bottom=0.1)
 
+    # 获取 figure_dir（优先使用传入的，否则使用默认值）
+    figure_dir = kwargs.get('figure_dir', 'figure')
+    
     # 创建 figure 文件夹（如果不存在）
-    if not os.path.exists('figure'):
-        os.makedirs('figure')
+    if not os.path.exists(figure_dir):
+        os.makedirs(figure_dir)
 
     # 保存图片
-    fig2.savefig('figure/system_results' + filename.split('.')[0] + '.png', dpi=300, bbox_inches='tight')
+    fig2.savefig(os.path.join(figure_dir, 'system_results' + filename.split('.')[0] + '.png'), dpi=300, bbox_inches='tight')
     # plt.show()  # 使用Agg后端，不需要显示窗口
     plt.close()
     return time_xLabel
 
 
-def plot_comprehensive_results(sorted_all_results, args_concurrency, total_time, filename, exp_type, qps_with_time):
+def plot_comprehensive_results(sorted_all_results, args_concurrency, total_time, filename, exp_type, qps_with_time, **kwargs):
     """
     绘制综合性能图表，只包括各客户端的性能指标
     """
@@ -228,18 +231,21 @@ def plot_comprehensive_results(sorted_all_results, args_concurrency, total_time,
     # 调整子图间距，为底部图例留出空间
     fig1.subplots_adjust(top=0.92, bottom=0.1)
 
+    # 获取 figure_dir
+    figure_dir = kwargs.get('figure_dir', 'figure')
+
     # 创建figure文件夹（如果不存在）
-    if not os.path.exists('figure'):
-        os.makedirs('figure')
+    if not os.path.exists(figure_dir):
+        os.makedirs(figure_dir)
 
     # 保存图表
-    fig1.savefig(f'figure/performance_metrics{filename.split(".")[0]}.png', dpi=300, bbox_inches='tight')
+    fig1.savefig(os.path.join(figure_dir, f'performance_metrics{filename.split(".")[0]}.png'), dpi=300, bbox_inches='tight')
 
     # plt.show()  # 使用Agg后端，不需要显示窗口
     plt.close()
 
 
-def plot_fairness_results(sorted_all_results, args_concurrency, total_time, filename, exp_type, fairness_results):
+def plot_fairness_results(sorted_all_results, args_concurrency, total_time, filename, exp_type, fairness_results, **kwargs):
     """
     绘制公平性相关图表
     """
@@ -336,12 +342,15 @@ def plot_fairness_results(sorted_all_results, args_concurrency, total_time, file
     # 调整子图间距，为底部图例留出空间
     fig2.subplots_adjust(top=0.92, bottom=0.1)
 
+    # 获取 figure_dir
+    figure_dir = kwargs.get('figure_dir', 'figure')
+
     # 创建figure文件夹（如果不存在）
-    if not os.path.exists('figure'):
-        os.makedirs('figure')
+    if not os.path.exists(figure_dir):
+        os.makedirs(figure_dir)
 
     # 保存图表
-    fig2.savefig(f'figure/fairness_metrics{filename.split(".")[0]}.png', dpi=300, bbox_inches='tight')
+    fig2.savefig(os.path.join(figure_dir, f'fairness_metrics{filename.split(".")[0]}.png'), dpi=300, bbox_inches='tight')
 
     # plt.show()  # 使用Agg后端，不需要显示窗口
     plt.close()
@@ -521,7 +530,7 @@ def plot_client_metric(ax, sorted_all_results, short_clients, long_clients, mix_
     setup_subplot_client(ax, title, time_xLabel, ylim=computed_ylim)
 
 
-def plot_aggregated_results(sorted_all_results, args_concurrency, total_time, filename, exp_type):
+def plot_aggregated_results(sorted_all_results, args_concurrency, total_time, filename, exp_type, **kwargs):
     """
     绘制所有客户端的汇总图表（总和或平均值）
     """
@@ -670,20 +679,40 @@ def plot_aggregated_results(sorted_all_results, args_concurrency, total_time, fi
     fig.tight_layout(pad=3.0, h_pad=2.0, w_pad=2.0)
     fig.subplots_adjust(top=0.92, bottom=0.1)
 
+    # 获取 figure_dir
+    figure_dir = kwargs.get('figure_dir', 'figure')
+
     # 创建figure文件夹（如果不存在）
-    if not os.path.exists('figure'):
-        os.makedirs('figure')
+    if not os.path.exists(figure_dir):
+        os.makedirs(figure_dir)
 
     # 保存图表
-    fig.savefig(f'figure/aggregated_metrics{filename.split(".")[0]}.png', dpi=300, bbox_inches='tight')
+    fig.savefig(os.path.join(figure_dir, f'aggregated_metrics{filename.split(".")[0]}.png'), dpi=300, bbox_inches='tight')
 
     # plt.show()  # 使用Agg后端，不需要显示窗口
     plt.close()
 
 
 def plot_result(plot_data):
-    with open("results/" + plot_data["filename"], 'r') as f:
-        all_results = json.load(f)
+    # 获取 result_dir 和 figure_dir（新格式）
+    result_dir = plot_data.get("result_dir", "results")
+    figure_dir = plot_data.get("figure_dir", "figure")
+    
+    # 确定结果文件路径
+    if result_dir and result_dir != "results":
+        # 新格式：从 result_dir 读取 benchmark_results.json
+        results_file = os.path.join(result_dir, "benchmark_results.json")
+    else:
+        # 旧格式：从 results/ 根目录读取
+        results_file = os.path.join("results", plot_data["filename"])
+    
+    # 读取结果
+    try:
+        with open(results_file, 'r') as f:
+            all_results = json.load(f)
+    except FileNotFoundError:
+        print(f"Warning: Results file not found at {results_file}")
+        return
 
     # Load fairness results and create third figure
     fairness_file_path = f"tmp_result/tmp_fairness_result_{plot_data['exp']}_{GLOBAL_CONFIG.get('monitor_file_time')}.json"
@@ -717,15 +746,18 @@ def plot_result(plot_data):
         # Combine sorted results with short first, then long, then mix
         sorted_all_results = short_results + long_results + mix_results
 
+        # 传递 figure_dir 给所有绑图函数
         qps_with_time = plot_averaged_results(short_results, long_results, plot_data["concurrency"],
                                               plot_data["total_time"], plot_data["filename"],
-                                              plot_data["exp"])
+                                              plot_data["exp"], figure_dir=figure_dir)
         plot_comprehensive_results(sorted_all_results, plot_data["concurrency"], plot_data["total_time"],
-                                   plot_data["filename"], plot_data["exp"], qps_with_time)
+                                   plot_data["filename"], plot_data["exp"], qps_with_time, figure_dir=figure_dir)
         plot_fairness_results(sorted_all_results, plot_data["concurrency"], plot_data["total_time"],
-                               plot_data["filename"], plot_data["exp"], fairness_results)
+                               plot_data["filename"], plot_data["exp"], fairness_results, figure_dir=figure_dir)
         plot_aggregated_results(sorted_all_results, plot_data["concurrency"], plot_data["total_time"],
-                               plot_data["filename"], plot_data["exp"])
+                               plot_data["filename"], plot_data["exp"], figure_dir=figure_dir)
+        
+        print(f"Figures saved to: {figure_dir}")
     else:
         print("No results found")
         return
