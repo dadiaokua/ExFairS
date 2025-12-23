@@ -33,7 +33,7 @@ experiment:
   concurrency: 1
   num_requests: 100
   request_timeout: 20
-  sleep_time: 60
+  sleep_time: 5
 
 # Distribution
 distribution: "normal"

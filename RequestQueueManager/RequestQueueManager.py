@@ -12,6 +12,15 @@ import json
 import uuid  # 添加uuid导入
 import threading  # 添加线程安全支持
 
+# 导入常量
+from .constants import (
+    WORKER_EMPTY_CYCLE_THRESHOLD,
+    MAX_BATCH_SIZE,
+    MAX_CONCURRENCY,
+    REQUEST_TIMEOUT_SECONDS,
+    DEFAULT_MAX_QUEUE_SIZE,
+)
+
 
 # 全局计数器，用于生成唯一的请求序列号
 _request_counter = 0
@@ -107,6 +116,7 @@ class RequestQueueManager:
         self.justitia_virtual_time = 0.0  # 系统虚拟时间 V(t)
         self.justitia_active_tasks = 0  # 当前活跃任务数 N_t
         self.justitia_total_memory = 100000  # 总显存容量 M（抽象单位）
+        self.justitia_running_tasks = set()  # 正在执行的任务ID集合
         
         # SLO Greedy 策略专用：维护客户端 SLO 违约统计
         self.slo_greedy_heap = []  # 最小堆: [(-violation_rate, request)]
@@ -122,6 +132,9 @@ class RequestQueueManager:
 
         # 用于跟踪已提交的request_id，避免重复
         self._submitted_request_ids = set()
+
+        # 并发控制：限制同时处理的请求数
+        self.processing_semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 
     def _setup_logger(self):
         """设置日志记录器"""
@@ -562,9 +575,14 @@ class RequestQueueManager:
                 import heapq
                 
                 async with self.justitia_lock:
-                    # 更新系统虚拟时间 V(t) = M / N_t
-                    self.justitia_active_tasks = len(self.justitia_heap) + 1
-                    self.justitia_virtual_time = self.justitia_total_memory / self.justitia_active_tasks
+                    # 基于正在执行的任务数计算虚拟时间 V(t) = M / N_t
+                    # 注：这里使用 running_tasks 而非 heap 大小，因为 heap 是等待队列
+                    running_count = len(self.justitia_running_tasks)
+                    if running_count > 0:
+                        self.justitia_virtual_time = self.justitia_total_memory / running_count
+                    else:
+                        # 如果没有正在执行的任务，使用最大虚拟时间（新任务可以立即执行）
+                        self.justitia_virtual_time = self.justitia_total_memory
                     
                     # 估算任务资源需求 C_j (使用input * output + output * output / 2 作为近似)
                     # 如果有更精确的MLP预测，可以在这里替换
@@ -580,8 +598,9 @@ class RequestQueueManager:
                     # 插入最小堆
                     heapq.heappush(self.justitia_heap, (virtual_finish_time, request))
                     
-                    self.logger.info(f"[Justitia] Request {request_id}: V(t)={self.justitia_virtual_time:.2f}, "
-                                   f"C_j={estimated_cost}, f_j={virtual_finish_time:.2f}, heap_size={len(self.justitia_heap)}")
+                    self.logger.info(f"[Justitia] Request {request_id}: running_tasks={running_count}, "
+                                   f"V(t)={self.justitia_virtual_time:.2f}, C_j={estimated_cost}, "
+                                   f"f_j={virtual_finish_time:.2f}, heap_size={len(self.justitia_heap)}")
             
             elif self.strategy == QueueStrategy.SLO_GREEDY:
                 # SLO Greedy策略：根据客户端SLO违约率插入最小堆
@@ -590,11 +609,19 @@ class RequestQueueManager:
                 async with self.slo_greedy_lock:
                     # 获取客户端的SLO违约率
                     client_stats = self.client_stats.get(client_id, {})
-                    total_requests = client_stats.get('total_requests', 1)
-                    # 注意：这里我们需要从实验对象中获取slo_violation_count
-                    # 暂时使用failed_requests作为近似
+                    total_requests = client_stats.get('total_requests', 0)
                     slo_violations = client_stats.get('failed_requests', 0)
-                    violation_rate = slo_violations / max(total_requests, 1)
+                    
+                    # 冷启动处理：新客户端（请求数 < 10）使用初始权重 0.5
+                    # 避免新客户端因为 violation_rate = 0 而永远排在最后
+                    COLD_START_THRESHOLD = 10
+                    COLD_START_WEIGHT = 0.5
+                    
+                    if total_requests < COLD_START_THRESHOLD:
+                        violation_rate = COLD_START_WEIGHT
+                        self.logger.debug(f"[SLO Greedy] Client {client_id} in cold start phase (requests={total_requests}), using weight={COLD_START_WEIGHT}")
+                    else:
+                        violation_rate = slo_violations / total_requests
                     
                     # 使用负的violation_rate，因为heapq是最小堆，我们要violation_rate高的优先
                     priority_key = -violation_rate
@@ -603,7 +630,7 @@ class RequestQueueManager:
                     heapq.heappush(self.slo_greedy_heap, (priority_key, time.time(), request))
                     
                     self.logger.info(f"[SLO Greedy] Request {request_id} from {client_id}: "
-                                   f"violation_rate={violation_rate:.3f}, heap_size={len(self.slo_greedy_heap)}")
+                                   f"violation_rate={violation_rate:.3f}, total_requests={total_requests}, heap_size={len(self.slo_greedy_heap)}")
             
             else:
                 # 其他策略使用普通队列
@@ -900,6 +927,12 @@ class RequestQueueManager:
         """处理单个请求"""
         self.logger.debug(f"Worker {worker_name}: Starting to process request {request.request_id}")
 
+        # Justitia 策略：任务开始执行时加入 running_tasks
+        if self.strategy == QueueStrategy.JUSTITIA:
+            async with self.justitia_lock:
+                self.justitia_running_tasks.add(request.request_id)
+                self.logger.debug(f"[Justitia] Task {request.request_id} started, running_tasks={len(self.justitia_running_tasks)}")
+
         # 检查是否有vLLM引擎（这是实际使用的处理方式）
         from config.Config import GLOBAL_CONFIG
         vllm_engine = GLOBAL_CONFIG.get('vllm_engine')
@@ -908,6 +941,9 @@ class RequestQueueManager:
             # 如果没有vLLM引擎，检查OpenAI客户端（备用方案）
             if not self.openai_client:
                 self.logger.error("Neither vLLM engine nor OpenAI client is available")
+                # Justitia：清理 running_tasks
+                if self.strategy == QueueStrategy.JUSTITIA:
+                    await self._justitia_task_finished(request.request_id)
                 return None
             else:
                 selected_client = self.openai_client[int(worker_name.split('-')[1]) % len(self.openai_client)]
@@ -937,6 +973,9 @@ class RequestQueueManager:
             if result is None:
                 self.client_stats[request.client_id]['failed_requests'] += 1
                 self.logger.warning(f"Request failed: {request.request_id}")
+                # Justitia：任务完成，移除 running_tasks
+                if self.strategy == QueueStrategy.JUSTITIA:
+                    await self._justitia_task_finished(request.request_id)
                 return None
 
             self.client_stats[request.client_id]['completed_requests'] += 1
@@ -957,11 +996,29 @@ class RequestQueueManager:
             except (ValueError, TypeError, IndexError) as e:
                 self.logger.error(f"Error processing result data for {request.request_id}: {str(e)}, result: {result}")
 
+            # Justitia：任务完成，移除 running_tasks
+            if self.strategy == QueueStrategy.JUSTITIA:
+                await self._justitia_task_finished(request.request_id)
+
             return result
         except Exception as e:
             self.logger.error(f"Error processing request {request.request_id} from {request.client_id}: {str(e)}")
             self.client_stats[request.client_id]['failed_requests'] += 1
+            # Justitia：任务失败，也要移除 running_tasks
+            if self.strategy == QueueStrategy.JUSTITIA:
+                await self._justitia_task_finished(request.request_id)
             return None
+    
+    async def _justitia_task_finished(self, request_id: str):
+        """Justitia 任务完成时的清理和虚拟时间更新"""
+        async with self.justitia_lock:
+            self.justitia_running_tasks.discard(request_id)
+            running_count = len(self.justitia_running_tasks)
+            if running_count > 0:
+                self.justitia_virtual_time = self.justitia_total_memory / running_count
+            else:
+                self.justitia_virtual_time = self.justitia_total_memory
+            self.logger.debug(f"[Justitia] Task {request_id} finished, running_tasks={running_count}, V(t)={self.justitia_virtual_time:.2f}")
 
     async def start_processing(self, num_workers: int = 5):
         """启动请求处理"""
@@ -1085,7 +1142,7 @@ class RequestQueueManager:
         self.logger.info(f"Worker {worker_name} started (batch mode: 1s interval)")
 
         consecutive_empty_cycles = 0
-        max_empty_cycles = 1200  # 120秒无请求后记录警告，但不退出
+        max_empty_cycles = WORKER_EMPTY_CYCLE_THRESHOLD  # 120秒无请求后记录警告，但不退出
         total_cycles = 0
         total_requests_processed = 0
 
@@ -1123,11 +1180,12 @@ class RequestQueueManager:
                     self.logger.debug(f"Worker {worker_name}: No requests available, consecutive empty cycles: {consecutive_empty_cycles}")
                     continue
                 
-                # 从队列中取出所有请求
+                # 限制每批处理的请求数，避免一次取出所有请求破坏公平性
+                batch_size = min(total_available, MAX_BATCH_SIZE)
                 requests_collected = 0
                 collection_start_time = time.time()
                 
-                for i in range(total_available):
+                for i in range(batch_size):
                     request = await self._get_next_request()
                     if request is None:
                         self.logger.debug(f"Worker {worker_name}: No more requests available after collecting {requests_collected}")
@@ -1136,7 +1194,7 @@ class RequestQueueManager:
                     requests_collected += 1
                 
                 collection_time = time.time() - collection_start_time
-                self.logger.debug(f"Worker {worker_name}: Collected {requests_collected} requests in {collection_time:.3f}s")
+                self.logger.debug(f"Worker {worker_name}: Collected {requests_collected}/{batch_size} requests in {collection_time:.3f}s")
                 
                 # 如果没有请求，继续下一轮
                 if not requests_to_process:
@@ -1233,79 +1291,82 @@ class RequestQueueManager:
     async def _process_request_async(self, request: QueuedRequest, worker_name: str):
         """异步处理单个请求"""
         request_start_time = time.time()
-        try:
-            self.logger.debug(f"Worker {worker_name}: Starting async processing for {request.request_id} "
-                            f"from client {request.client_id} (priority={request.priority})")
+        
+        # 使用信号量限制并发数
+        async with self.processing_semaphore:
+            try:
+                self.logger.debug(f"Worker {worker_name}: Starting async processing for {request.request_id} "
+                                f"from client {request.client_id} (priority={request.priority})")
 
-            # 处理请求
-            processing_start_time = time.time()
-            result = await self._process_request(request, worker_name)
-            processing_time = time.time() - processing_start_time
+                # 处理请求
+                processing_start_time = time.time()
+                result = await self._process_request(request, worker_name)
+                processing_time = time.time() - processing_start_time
 
-            if result is not None:
-                self.logger.debug(f"Worker {worker_name}: Request {request.request_id} processed successfully "
-                                f"in {processing_time:.3f}s")
-            else:
-                self.logger.warning(f"Worker {worker_name}: Request {request.request_id} processing returned None "
-                               f"after {processing_time:.3f}s")
+                if result is not None:
+                    self.logger.debug(f"Worker {worker_name}: Request {request.request_id} processed successfully "
+                                    f"in {processing_time:.3f}s")
+                else:
+                    self.logger.warning(f"Worker {worker_name}: Request {request.request_id} processing returned None "
+                                   f"after {processing_time:.3f}s")
 
-            # 将结果发送到客户端的响应队列
-            if request.client_id in self.response_queues:
-                queue_put_start_time = time.time()
-                await self.response_queues[request.client_id].put(result)
-                queue_put_time = time.time() - queue_put_start_time
-                
-                self.logger.debug(f"Worker {worker_name}: Result sent to response queue for {request.client_id} "
-                                f"in {queue_put_time:.3f}s")
-            else:
-                self.logger.error(f"Worker {worker_name}: No response queue found for client {request.client_id} "
-                                f"(request: {request.request_id})")
-
-            total_time = time.time() - request_start_time
-            self.logger.debug(f"Worker {worker_name}: Total async processing time for {request.request_id}: {total_time:.3f}s")
-
-        except asyncio.CancelledError:
-            # 请求被取消，这是正常的（实验结束时）
-            cancel_time = time.time() - request_start_time
-            self.logger.debug(f"Worker {worker_name}: Request {request.request_id} was cancelled after {cancel_time:.3f}s "
-                            f"(normal during cleanup)")
-            
-            # 发送None作为取消结果
-            if request.client_id in self.response_queues:
-                try:
-                    await self.response_queues[request.client_id].put(None)
-                    self.logger.debug(f"Worker {worker_name}: Sent cancellation result to {request.client_id}")
-                except Exception as e:
-                    self.logger.debug(f"Worker {worker_name}: Failed to send cancellation result to {request.client_id}: {e}")
+                # 将结果发送到客户端的响应队列
+                if request.client_id in self.response_queues:
+                    queue_put_start_time = time.time()
+                    await self.response_queues[request.client_id].put(result)
+                    queue_put_time = time.time() - queue_put_start_time
                     
-        except Exception as e:
-            error_time = time.time() - request_start_time
-            self.logger.error(f"Worker {worker_name}: Error in async processing for {request.request_id} "
-                            f"after {error_time:.3f}s: {str(e)}")
-            
-            # 如果是vLLM引擎相关的错误，尝试abort请求
-            if "Waiting sequence group should have only one prompt sequence" in str(e):
-                self.logger.warning(f"Worker {worker_name}: Detected vLLM sequence group error for {request.request_id}, "
-                                  f"attempting abort")
-                try:
-                    # 尝试从vLLM引擎中abort这个请求
-                    if hasattr(self, 'openai_client') and self.openai_client:
-                        # 如果有vLLM引擎访问权限，尝试abort
-                        from config.Config import GLOBAL_CONFIG
-                        vllm_engine = GLOBAL_CONFIG.get('vllm_engine')
-                        if vllm_engine and hasattr(vllm_engine, 'abort_request'):
-                            await vllm_engine.abort_request(request.request_id)
-                            self.logger.info(f"Worker {worker_name}: Successfully aborted problematic request {request.request_id}")
-                except Exception as abort_error:
-                    self.logger.warning(f"Worker {worker_name}: Failed to abort problematic request {request.request_id}: {abort_error}")
-            
-            # 发送None作为错误结果
-            if request.client_id in self.response_queues:
-                try:
-                    await self.response_queues[request.client_id].put(None)
-                    self.logger.debug(f"Worker {worker_name}: Sent error result to {request.client_id}")
-                except Exception as send_error:
-                    self.logger.error(f"Worker {worker_name}: Failed to send error result to {request.client_id}: {send_error}")
+                    self.logger.debug(f"Worker {worker_name}: Result sent to response queue for {request.client_id} "
+                                    f"in {queue_put_time:.3f}s")
+                else:
+                    self.logger.error(f"Worker {worker_name}: No response queue found for client {request.client_id} "
+                                    f"(request: {request.request_id})")
+
+                total_time = time.time() - request_start_time
+                self.logger.debug(f"Worker {worker_name}: Total async processing time for {request.request_id}: {total_time:.3f}s")
+
+            except asyncio.CancelledError:
+                # 请求被取消，这是正常的（实验结束时）
+                cancel_time = time.time() - request_start_time
+                self.logger.debug(f"Worker {worker_name}: Request {request.request_id} was cancelled after {cancel_time:.3f}s "
+                                f"(normal during cleanup)")
+                
+                # 发送None作为取消结果
+                if request.client_id in self.response_queues:
+                    try:
+                        await self.response_queues[request.client_id].put(None)
+                        self.logger.debug(f"Worker {worker_name}: Sent cancellation result to {request.client_id}")
+                    except Exception as e:
+                        self.logger.debug(f"Worker {worker_name}: Failed to send cancellation result to {request.client_id}: {e}")
+                        
+            except Exception as e:
+                error_time = time.time() - request_start_time
+                self.logger.error(f"Worker {worker_name}: Error in async processing for {request.request_id} "
+                                f"after {error_time:.3f}s: {str(e)}")
+                
+                # 如果是vLLM引擎相关的错误，尝试abort请求
+                if "Waiting sequence group should have only one prompt sequence" in str(e):
+                    self.logger.warning(f"Worker {worker_name}: Detected vLLM sequence group error for {request.request_id}, "
+                                      f"attempting abort")
+                    try:
+                        # 尝试从vLLM引擎中abort这个请求
+                        if hasattr(self, 'openai_client') and self.openai_client:
+                            # 如果有vLLM引擎访问权限，尝试abort
+                            from config.Config import GLOBAL_CONFIG
+                            vllm_engine = GLOBAL_CONFIG.get('vllm_engine')
+                            if vllm_engine and hasattr(vllm_engine, 'abort_request'):
+                                await vllm_engine.abort_request(request.request_id)
+                                self.logger.info(f"Worker {worker_name}: Successfully aborted problematic request {request.request_id}")
+                    except Exception as abort_error:
+                        self.logger.warning(f"Worker {worker_name}: Failed to abort problematic request {request.request_id}: {abort_error}")
+                
+                # 发送None作为错误结果
+                if request.client_id in self.response_queues:
+                    try:
+                        await self.response_queues[request.client_id].put(None)
+                        self.logger.debug(f"Worker {worker_name}: Sent error result to {request.client_id}")
+                    except Exception as send_error:
+                        self.logger.error(f"Worker {worker_name}: Failed to send error result to {request.client_id}: {send_error}")
 
     async def reset_statistics(self):
         """重置统计信息但不停止工作线程且不清空队列"""

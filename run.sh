@@ -199,8 +199,8 @@ if [[ "$BATCH_MODE" == true ]]; then
             
             # 等待
             if [[ $run_counter -lt $total_runs ]]; then
-                echo "⏱️  等待 180 秒..." | tee -a "$LOG_FILE"
-                sleep 180
+                echo "⏱️  等待 30 秒..." | tee -a "$LOG_FILE"
+                sleep 30
             fi
         done
     done
@@ -319,8 +319,8 @@ else
         
         # 等待
         if [[ ${#EXP_ARRAY[@]} -gt 1 ]]; then
-            echo "⏱️  等待 180 秒..."
-            sleep 180
+            echo "⏱️  等待 30 秒..."
+            sleep 30
         fi
     done
     
