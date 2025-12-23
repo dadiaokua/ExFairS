@@ -252,8 +252,12 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
                 failed_runs+=("$scenario + $exp")
             fi
             
-            # 策略之间等待
-            if [[ $scenario_success -lt ${#EXP_ARRAY[@]} ]]; then
+            # 策略之间等待（跳过当前场景的最后一个策略）
+            local exp_index
+            for exp_index in "${!EXP_ARRAY[@]}"; do
+                [[ "${EXP_ARRAY[$exp_index]}" == "$exp" ]] && break
+            done
+            if [[ $((exp_index + 1)) -lt ${#EXP_ARRAY[@]} ]]; then
                 echo "⏱️  等待 30 秒..." | tee -a "$LOG_FILE"
                 sleep 30
             fi
@@ -266,7 +270,8 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
         # 调用可视化脚本
         if [[ -f "$SCRIPT_DIR/scripts/visualize_results.py" ]]; then
             cd "$SCRIPT_DIR"
-            if python3 scripts/visualize_results.py "$scenario" --run-id "$RUN_TIMESTAMP" --results-dir "$RUN_RESULTS_DIR" >> "$LOG_FILE" 2>&1; then
+            # 使用 RESULTS_BASE_DIR 作为 results-dir，避免 run_id 重复
+            if python3 scripts/visualize_results.py "$scenario" --run-id "$RUN_TIMESTAMP" --results-dir "$RESULTS_BASE_DIR" >> "$LOG_FILE" 2>&1; then
                 echo "✅ 可视化完成: $RUN_RESULTS_DIR/$scenario/charts/" | tee -a "$LOG_FILE"
             else
                 echo "⚠️  可视化失败（不影响实验结果）" | tee -a "$LOG_FILE"
@@ -277,8 +282,12 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
         echo "✨ 场景 $scenario 全部完成 ($scenario_success/${#EXP_ARRAY[@]} 成功)" | tee -a "$LOG_FILE"
         echo "" | tee -a "$LOG_FILE"
         
-        # 场景之间等待更长时间
-        if [[ $run_counter -lt $total_runs ]]; then
+        # 场景之间等待更长时间（跳过最后一个场景）
+        local scenario_index
+        for scenario_index in "${!SCENARIO_ARRAY[@]}"; do
+            [[ "${SCENARIO_ARRAY[$scenario_index]}" == "$scenario" ]] && break
+        done
+        if [[ $((scenario_index + 1)) -lt ${#SCENARIO_ARRAY[@]} ]]; then
             echo "⏸️  场景间隔，等待 60 秒..." | tee -a "$LOG_FILE"
             sleep 60
         fi

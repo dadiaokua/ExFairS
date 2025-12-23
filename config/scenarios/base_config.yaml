@@ -21,7 +21,7 @@ experiment:
 
   # round_time: 每轮实验的持续时间（秒）
   # - 每轮结束后会等待所有请求完成
-  round_time: 60
+  round_time: 30
 
   # concurrency: 并发级别（保留参数，当前未使用）
   concurrency: 1
