@@ -31,11 +31,11 @@ STRATEGY_NAMES = {
     'justitia': 'Justitia',
     'slo_greedy': 'SLO-Greedy'
 }
-# 学术风格配色
+# 学术风格配色（按图片配色）
 STRATEGY_COLORS = {
-    'rr': '#66c2a5',      # 青绿色
-    'vtc': '#fc8d62',     # 橙色
-    'exfairs': '#8da0cb', # 蓝紫色
+    'rr': '#e8998d',       # 珊瑚粉色
+    'vtc': '#8fb78f',      # 草绿色
+    'exfairs': '#8da0cb',  # 蓝紫色
     'justitia': '#e78ac3', # 粉紫色
     'slo_greedy': '#a6d854' # 黄绿色
 }
@@ -135,7 +135,7 @@ def extract_metrics(results: dict) -> dict:
             'jain_index': fairness.get('jain_index_safi', fairness.get('jain_index', 0)),
             'jain_index_token': fairness.get('jain_index_token', 0),
             'jain_index_slo': fairness.get('jain_index_slo_violation', 0),
-            'goodput': total_completed - total_timeout,
+            'goodput': total_completed,  # Goodput = 成功完成的请求数
             'total_completed': total_completed,
             'total_slo_violations': total_slo,
             'total_timeout': total_timeout,
@@ -168,8 +168,8 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
     os.makedirs(output_dir, exist_ok=True)
     
     # ========== 图1: 基础性能指标 ==========
-    fig1, axes1 = plt.subplots(2, 3, figsize=(14, 8))
-    fig1.suptitle('Performance Comparison', fontsize=12, fontweight='bold')
+    fig1, axes1 = plt.subplots(2, 3, figsize=(15, 8))
+    fig1.suptitle(f'Performance Comparison - {scenario_name}', fontsize=14, fontweight='bold')
     
     # 设置学术风格
     for ax in axes1.flat:
@@ -207,9 +207,12 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
     bars = ax.bar(labels, values, color=colors, edgecolor='black', linewidth=0.5)
     ax.set_ylabel('Average Latency (s)', fontsize=10)
     ax.set_title('(c) Average Latency ↓', fontsize=10)
+    # 自动调整 y 轴范围
+    max_val = max(values) if values else 1
+    ax.set_ylim(0, max_val * 1.3)
     for bar, val in zip(bars, values):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.2, f'{val:.1f}s', 
-                ha='center', va='bottom', fontsize=8)
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max_val * 0.05, f'{val:.2f}s', 
+                ha='center', va='bottom', fontsize=9)
     
     # 4. Jain Index (SAFI)
     ax = axes1[1, 0]
@@ -242,50 +245,55 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
     ax.legend(fontsize=8)
+    # 自动调整 y 轴
+    all_latencies = p95_values + p99_values
+    max_lat = max(all_latencies) if all_latencies else 1
+    ax.set_ylim(0, max_lat * 1.3)
     
-    # 6. Goodput
+    # 6. Goodput (成功完成的请求数)
     ax = axes1[1, 2]
-    values = [metrics[s]['total_completed'] - metrics[s]['total_timeout'] for s in strategies]
+    values = [metrics[s]['goodput'] for s in strategies]  # 使用正确的 goodput 值
     bars = ax.bar(labels, values, color=colors, edgecolor='black', linewidth=0.5)
-    ax.set_ylabel('Goodput (success)', fontsize=10)
+    ax.set_ylabel('Goodput (completed)', fontsize=10)
     ax.set_title('(f) Goodput ↑', fontsize=10)
+    # 自动调整 y 轴
+    max_val = max(values) if values else 1
+    ax.set_ylim(0, max_val * 1.2)
     for bar, val in zip(bars, values):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 10, f'{val}', 
-                ha='center', va='bottom', fontsize=8)
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max_val * 0.03, f'{val}', 
+                ha='center', va='bottom', fontsize=9, fontweight='bold')
     
-    plt.tight_layout()
+    plt.tight_layout(rect=[0, 0, 1, 0.96])  # 给标题留空间
     output_path1 = os.path.join(output_dir, f"performance.png")
     fig1.savefig(output_path1, dpi=150, bbox_inches='tight', facecolor='white')
     plt.close(fig1)
     print(f"[✓] Performance chart saved to: {output_path1}")
     
-    # ========== 图2: 公平性指标对比（三个JAIN指数）==========
+    # ========== 图2: 公平性指标对比（每个策略的 SAFI Jain Index）==========
     fig2, ax2 = plt.subplots(1, 1, figsize=(10, 6))
-    fig2.suptitle('Fairness Comparison (Multiple Jain Indices)', fontsize=12, fontweight='bold')
+    fig2.suptitle(f'Fairness Comparison - {scenario_name}', fontsize=14, fontweight='bold')
     
     ax2.spines['top'].set_visible(False)
     ax2.spines['right'].set_visible(False)
     
-    x = range(len(strategies))
-    width = 0.25
-    
+    # 每个策略的 Jain Index (SAFI)
     safi_values = [metrics[s]['jain_index'] for s in strategies]
-    token_values = [metrics[s]['jain_index_token'] for s in strategies]
-    slo_values = [metrics[s]['jain_index_slo'] for s in strategies]
     
-    ax2.bar([xi - width for xi in x], safi_values, width, label='SAFI', 
-           color='#8da0cb', edgecolor='black', linewidth=0.5)
-    ax2.bar(x, token_values, width, label='Token-based', 
-           color='#fc8d62', edgecolor='black', linewidth=0.5)
-    ax2.bar([xi + width for xi in x], slo_values, width, label='SLO Violation', 
-           color='#a6d854', edgecolor='black', linewidth=0.5)
+    bars = ax2.bar(labels, safi_values, color=colors, edgecolor='black', linewidth=0.5, width=0.6)
     
-    ax2.set_ylabel('Jain Index', fontsize=10)
-    ax2.set_title('Fairness Metrics (Higher is Better)', fontsize=10)
-    ax2.set_xticks(x)
-    ax2.set_xticklabels(labels)
-    ax2.set_ylim(0, 1.1)
-    ax2.legend(fontsize=9, loc='lower right')
+    ax2.set_ylabel('Jain Index (Service Fairness)', fontsize=12)
+    ax2.set_xlabel('Strategy', fontsize=12)
+    ax2.set_title('User SAFI Fairness (Higher is Better)', fontsize=11)
+    
+    # 设置 y 轴范围：从最小值稍下到 1.0
+    min_val = min(safi_values) if safi_values else 0
+    ax2.set_ylim(max(0, min_val - 0.1), 1.05)
+    
+    # 在柱子上显示数值
+    for bar, val in zip(bars, safi_values):
+        ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02, 
+                f'{val:.4f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
+    
     ax2.grid(axis='y', alpha=0.3, linestyle='--')
     
     plt.tight_layout()
