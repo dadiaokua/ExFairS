@@ -191,8 +191,13 @@ done
 [[ -n "$SINGLE_SCENARIO" ]] && SINGLE_SCENARIO=$(map_scenario "$SINGLE_SCENARIO")
 [[ -n "$SCENARIOS" ]] && SCENARIOS=$(map_scenarios "$SCENARIOS")
 
-if [[ "$BATCH_MODE" == true ]]; then
+# 自动判断模式：
+# 1. 如果使用 -s 参数，进入批量模式
+# 2. 如果使用 -e 但没有指定 --scenario，也进入批量模式
+# 3. 如果使用 --scenario 指定了单个场景，进入单场景模式
+if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SCENARIO" ]]; }; then
     # 批量模式
+    BATCH_MODE=true
     echo "🚀 批量运行模式"
     
     # 默认值
