@@ -208,8 +208,8 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
     IFS=',' read -ra SCENARIO_ARRAY <<< "$SCENARIOS"
     IFS=',' read -ra EXP_ARRAY <<< "$EXPERIMENTS"
     
-    # 生成时间戳
-    RUN_TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+    # 生成时间戳（带 run_ 前缀）
+    RUN_TIMESTAMP="run_$(date +"%Y%m%d_%H%M%S")"
     RUN_RESULTS_DIR="${OUTPUT_DIR:-$RESULTS_BASE_DIR/$RUN_TIMESTAMP}"
     mkdir -p "$RUN_RESULTS_DIR"
     
@@ -243,7 +243,7 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
             
             # 调用单场景运行逻辑，传递RUN_TIMESTAMP确保所有实验共享同一个run_id
             # 注意：不要传递 --output-dir，让脚本自动使用 results/$RUN_TIMESTAMP/$scenario/$exp 结构
-            if RUN_TIMESTAMP="$RUN_TIMESTAMP" $0 -e "$exp" --scenario "$scenario" >> "$LOG_FILE" 2>&1; then
+            if RUN_TIMESTAMP="$RUN_TIMESTAMP" bash "$SCRIPT_DIR/run.sh" -e "$exp" --scenario "$scenario" >> "$LOG_FILE" 2>&1; then
                 success_counter=$((success_counter + 1))
                 scenario_success=$((scenario_success + 1))
                 echo "✅ 完成 $run_counter/$total_runs" | tee -a "$LOG_FILE"
@@ -321,8 +321,8 @@ else
             # 批量运行的一部分，使用共享的RUN_TIMESTAMP
             OUTPUT_DIR="$RESULTS_BASE_DIR/$RUN_TIMESTAMP"
         else
-            # 独立运行，生成新的时间戳
-            RUN_TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+            # 独立运行，生成新的时间戳（带 run_ 前缀）
+            RUN_TIMESTAMP="run_$(date +"%Y%m%d_%H%M%S")"
             OUTPUT_DIR="$RESULTS_BASE_DIR/$RUN_TIMESTAMP"
         fi
     fi
