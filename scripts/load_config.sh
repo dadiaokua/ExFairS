@@ -42,17 +42,48 @@ export LOCAL_PORT=$(echo "$VLLM_CONFIG_JSON" | python3 -c "import sys, json; pri
 
 # 加载场景配置
 if [[ "$SCENARIO_NAME" != "default" ]]; then
-    SCENARIO_FILE="$(dirname "$VLLM_CONFIG_FILE")/scenarios/${SCENARIO_NAME}.yaml"
+    # 获取项目根目录（load_config.sh 在 scripts/ 目录下）
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+    
+    # 场景文件在 config/scenarios/ 目录下
+    SCENARIO_FILE="$PROJECT_ROOT/config/scenarios/${SCENARIO_NAME}.yaml"
     
     if [[ ! -f "$SCENARIO_FILE" ]]; then
         echo "❌ 场景配置文件不存在: $SCENARIO_FILE"
         exit 1
     fi
     
+    # 同时加载 base_config.yaml 获取公共配置
+    BASE_CONFIG_FILE="$PROJECT_ROOT/config/scenarios/base_config.yaml"
+    
+    # 使用 Python 合并 base_config 和场景配置
     SCENARIO_CONFIG_JSON=$(python3 -c "
 import yaml, json
+import os
+
+# 加载 base_config
+base_config = {}
+if os.path.exists('$BASE_CONFIG_FILE'):
+    with open('$BASE_CONFIG_FILE', 'r') as f:
+        base_config = yaml.safe_load(f) or {}
+
+# 加载场景配置
 with open('$SCENARIO_FILE', 'r') as f:
-    print(json.dumps(yaml.safe_load(f)))
+    scenario_config = yaml.safe_load(f)
+
+# 递归合并
+def merge_dict(base, override):
+    result = base.copy()
+    for key, value in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = merge_dict(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+merged = merge_dict(base_config, scenario_config)
+print(json.dumps(merged))
 ")
     
     # 导出场景参数
