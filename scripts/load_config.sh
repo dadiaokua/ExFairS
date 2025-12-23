@@ -43,11 +43,12 @@ export LOCAL_PORT=$(echo "$VLLM_CONFIG_JSON" | python3 -c "import sys, json; pri
 # 加载场景配置
 if [[ "$SCENARIO_NAME" != "default" ]]; then
     # 获取项目根目录（load_config.sh 在 scripts/ 目录下）
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+    # 使用下划线前缀的变量名避免覆盖调用者的 SCRIPT_DIR
+    _LOAD_CFG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    _LOAD_CFG_ROOT="$(dirname "$_LOAD_CFG_DIR")"
     
     # 场景文件在 config/scenarios/ 目录下
-    SCENARIO_FILE="$PROJECT_ROOT/config/scenarios/${SCENARIO_NAME}.yaml"
+    SCENARIO_FILE="$_LOAD_CFG_ROOT/config/scenarios/${SCENARIO_NAME}.yaml"
     
     if [[ ! -f "$SCENARIO_FILE" ]]; then
         echo "❌ 场景配置文件不存在: $SCENARIO_FILE"
@@ -55,7 +56,7 @@ if [[ "$SCENARIO_NAME" != "default" ]]; then
     fi
     
     # 同时加载 base_config.yaml 获取公共配置
-    BASE_CONFIG_FILE="$PROJECT_ROOT/config/scenarios/base_config.yaml"
+    BASE_CONFIG_FILE="$_LOAD_CFG_ROOT/config/scenarios/base_config.yaml"
     
     # 使用 Python 合并 base_config 和场景配置
     SCENARIO_CONFIG_JSON=$(python3 -c "
