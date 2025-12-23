@@ -56,24 +56,8 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
         logger.info(f"   需要的文件:")
         logger.info(f"   - {short_prompts_file}")
         logger.info(f"   - {long_prompts_file}")
-                    raise FileNotFoundError("ShareGPT数据集不存在且生成失败")
-            except Exception as e:
-                logger.error(f"❌ 自动生成数据集失败: {e}")
-                logger.info("   请手动运行: python3 scripts/prepare_sharegpt_dataset.py")
-                raise FileNotFoundError("ShareGPT数据集不存在")
-        
-        # 加载ShareGPT数据集
-        with open(sharegpt_short_file, "r", encoding="utf-8") as f:
-            short_formatted_json = json.load(f)
-        
-        with open(sharegpt_long_file, "r", encoding="utf-8") as f:
-            long_formatted_json = json.load(f)
-        
-        mix_formatted_json = short_formatted_json + long_formatted_json
-        
-        logger.info(f"✅ ShareGPT数据集加载完成:")
-        logger.error(f"   缺少必要的数据集文件")
-        raise FileNotFoundError(f"Required prompt files not found")
+        logger.info(f"   请确保prompt_hub目录下有这两个文件")
+        raise FileNotFoundError(f"Required prompt files not found: {short_prompts_file}, {long_prompts_file}")
     
     # 加载prompt数据集
     with open(short_prompts_file, "r", encoding="utf-8") as f:
