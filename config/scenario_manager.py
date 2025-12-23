@@ -42,13 +42,57 @@ class ScenarioManager:
         if not os.path.exists(filepath):
             raise FileNotFoundError(f"Scenario file not found: {filepath}")
         
+        # 首先加载基础配置
+        base_config = self._load_base_config()
+        
         with open(filepath, 'r', encoding='utf-8') as f:
             scenario = yaml.safe_load(f)
+        
+        # 合并基础配置（场景配置优先）
+        scenario = self._merge_configs(base_config, scenario)
         
         # Validate scenario structure
         self._validate_scenario(scenario)
         
         return scenario
+    
+    def _load_base_config(self) -> Dict[str, Any]:
+        """
+        Load base configuration from base_config.yaml
+        
+        Returns:
+            Dictionary containing base configuration
+        """
+        base_filepath = os.path.join(self.scenarios_dir, "base_config.yaml")
+        
+        if not os.path.exists(base_filepath):
+            return {}
+        
+        with open(base_filepath, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f) or {}
+    
+    def _merge_configs(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Merge base config with override config (override takes precedence)
+        
+        Args:
+            base: Base configuration dictionary
+            override: Override configuration dictionary
+            
+        Returns:
+            Merged configuration dictionary
+        """
+        result = base.copy()
+        
+        for key, value in override.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                # 递归合并字典
+                result[key] = self._merge_configs(result[key], value)
+            else:
+                # 覆盖或添加
+                result[key] = value
+        
+        return result
     
     def load_all_scenarios(self) -> Dict[str, Dict[str, Any]]:
         """

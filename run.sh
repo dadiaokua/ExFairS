@@ -40,25 +40,25 @@ show_help() {
   - ExFairS, Justitia, SLOGreedy, VTC, FCFS  (基础模式)
 
 可用场景:
-  - scenario_I                 均衡负载 (2S+2L, QPM=50)
-  - scenario_II                不均衡负载 (2S+2L, QPM=10-90)
-  - scenario_III               异构4客户端 (Mix, QPM=20-40)
-  - scenario_IV                异构8客户端 (Mix, QPM=10-30)
-  - scenario_V                 高并发20客户端 (Mix, QPM=5-15)
-  - scenario_VI                高并发50客户端 (Mix, QPM=4)
+  - 1 或 scenario_I                 均衡负载 (2S+2L, QPM=50)
+  - 2 或 scenario_II                不均衡负载 (2S+2L, QPM=10-90)
+  - 3 或 scenario_III               异构4客户端 (Mix, QPM=20-40)
+  - 4 或 scenario_IV                异构8客户端 (Mix, QPM=10-30)
+  - 5 或 scenario_V                 高并发20客户端 (Mix, QPM=5-15)
+  - 6 或 scenario_VI                高并发50客户端 (Mix, QPM=4)
 
 示例:
-  # 单场景运行
-  $0 -e QUEUE_ExFairS --scenario scenario_I
+  # 单场景运行（用数字）
+  $0 -e QUEUE_ExFairS --scenario 1
   
   # 单场景多策略
-  $0 -e QUEUE_ExFairS,QUEUE_Justitia --scenario scenario_I
+  $0 -e QUEUE_ExFairS,QUEUE_Justitia --scenario 1
   
-  # 批量运行多场景多策略
-  $0 -e QUEUE_ExFairS,QUEUE_Justitia -s scenario_I,scenario_II
+  # 批量运行多场景多策略（用数字，逗号分隔）
+  $0 -e QUEUE_ExFairS,QUEUE_Justitia -s 1,2,3
   
-  # 运行所有场景和默认策略
-  $0 -s scenario_I,scenario_II,scenario_III,scenario_IV,scenario_V,scenario_VI
+  # 也可以用完整名称
+  $0 -e QUEUE_ExFairS -s scenario_I,scenario_II
 
 查询选项:
   $0 --list-scenarios          列出所有可用场景
@@ -67,16 +67,43 @@ show_help() {
 EOF
 }
 
+# ========== 场景数字映射 ==========
+# 将数字转换为场景名
+map_scenario() {
+    local input="$1"
+    case "$input" in
+        1) echo "scenario_I" ;;
+        2) echo "scenario_II" ;;
+        3) echo "scenario_III" ;;
+        4) echo "scenario_IV" ;;
+        5) echo "scenario_V" ;;
+        6) echo "scenario_VI" ;;
+        scenario_*) echo "$input" ;;  # 已经是完整名称
+        *) echo "$input" ;;            # 其他情况原样返回
+    esac
+}
+
+# 批量映射场景（逗号分隔的列表）
+map_scenarios() {
+    local input="$1"
+    local result=""
+    IFS=',' read -ra arr <<< "$input"
+    for s in "${arr[@]}"; do
+        mapped=$(map_scenario "$s")
+        [[ -n "$result" ]] && result+=","
+        result+="$mapped"
+    done
+    echo "$result"
+}
+
 list_scenarios() {
     echo "可用场景:"
-    python3 "$CONFIG_DIR/scenario_manager.py" list 2>/dev/null || {
-        echo "  - scenario_I: 均衡负载"
-        echo "  - scenario_II: 不均衡负载"
-        echo "  - scenario_III: 异构4客户端"
-        echo "  - scenario_IV: 异构8客户端"
-        echo "  - scenario_V: 高并发20客户端"
-        echo "  - scenario_VI: 高并发50客户端"
-    }
+    echo "  1 - scenario_I:   均衡负载 (2S+2L, QPM=50)"
+    echo "  2 - scenario_II:  不均衡负载 (2S+2L, QPM=10-90)"
+    echo "  3 - scenario_III: 异构4客户端 (Mix, QPM=20-40)"
+    echo "  4 - scenario_IV:  异构8客户端 (Mix, QPM=10-30)"
+    echo "  5 - scenario_V:   高并发20客户端 (Mix, QPM=5-15)"
+    echo "  6 - scenario_VI:  高并发50客户端 (Mix, QPM=4)"
 }
 
 list_strategies() {
@@ -148,6 +175,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ========== 模式判断 ==========
+# 先映射场景数字（如果是数字的话）
+[[ -n "$SINGLE_SCENARIO" ]] && SINGLE_SCENARIO=$(map_scenario "$SINGLE_SCENARIO")
+[[ -n "$SCENARIOS" ]] && SCENARIOS=$(map_scenarios "$SCENARIOS")
+
 if [[ "$BATCH_MODE" == true ]]; then
     # 批量模式
     echo "🚀 批量运行模式"

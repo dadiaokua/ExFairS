@@ -1,22 +1,44 @@
-# Scenario II: Imbalanced Load
-# S+L Clients (QPM=10-90) - Polarized
+# =============================================================================
+# Scenario II: Imbalanced Load（不平衡负载场景）
+# =============================================================================
+# 场景描述:
+#   - 4个客户端（2个短请求 + 2个长请求）
+#   - QPM 严重不均衡：一个 10 QPM，一个 90 QPM
+#   - 用于测试调度策略在极端不平衡负载下的公平性
+#
+# 预期行为:
+#   - FCFS: 高 QPM 客户端占据大部分处理时间
+#   - VTC:  低 QPM 客户端因 token 少而获得优先
+#   - Justitia: 应确保低 QPM 客户端不被饿死
+#   - Round-Robin: 可能导致高 QPM 客户端队列堆积
+#
+# 适用测试:
+#   - 调度策略的抗饥饿能力
+#   - 不公平检测和修正机制
+# =============================================================================
 
 name: "Scenario_II_Imbalanced_Load"
 description: "Imbalanced load with polarized QPM: 10 and 90"
 
-# Client Configuration
+# -----------------------------------------------------------------------------
+# 客户端配置
+# -----------------------------------------------------------------------------
+# 注意: 此场景中每种类型的两个客户端 QPM 差异巨大
+#       10 QPM 客户端每 6 秒发送 1 个请求
+#       90 QPM 客户端每 0.67 秒发送 1 个请求
+# -----------------------------------------------------------------------------
 clients:
   short:
     count: 2
-    qpm: [10, 90]
+    qpm: [10, 90]        # 极端不平衡: 1:9 的 QPM 比例
     qpm_ratio: 1
-    slo: [20, 20]  # seconds
+    slo: [20, 20]        # 相同的 SLO，便于对比公平性
   
   long:
     count: 2
-    qpm: [10, 90]
+    qpm: [10, 90]        # 长请求也是相同的不平衡分布
     qpm_ratio: 1
-    slo: [20, 20]  # seconds
+    slo: [20, 20]        # 相同的 SLO
   
   mix:
     count: 0
@@ -24,16 +46,4 @@ clients:
     qpm_ratio: 1
     slo: []
 
-# Experiment Configuration
-experiment:
-  round_num: 10
-  round_time: 60
-  concurrency: 1
-  num_requests: 100
-  request_timeout: 20
-  sleep_time: 5
-
-# Distribution
-distribution: "normal"
-use_time_data: 0
-
+# 公共配置继承自 base_config.yaml

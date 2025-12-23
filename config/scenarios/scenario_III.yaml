@@ -1,10 +1,32 @@
-# Scenario III: Heterogeneous
-# Mix 4 Clients (QPM=20-40)
+# =============================================================================
+# Scenario III: Heterogeneous（异构负载场景）
+# =============================================================================
+# 场景描述:
+#   - 4个混合客户端（请求长度随机）
+#   - QPM 分为两组: 20 QPM 和 40 QPM
+#   - SLO 差异化: 15 秒和 20 秒
+#   - 用于测试调度策略在异构工作负载下的表现
+#
+# 预期行为:
+#   - VTC: QPM 低的客户端应获得更快响应
+#   - SLO-Greedy: SLO 短的客户端（15s）在接近超时时应优先
+#   - Justitia: 根据预估任务成本进行调度
+#
+# 适用测试:
+#   - SLO 差异化场景的调度效果
+#   - 混合请求类型的资源分配
+# =============================================================================
 
 name: "Scenario_III_Heterogeneous"
 description: "Heterogeneous workload with 4 mixed clients"
 
-# Client Configuration
+# -----------------------------------------------------------------------------
+# 客户端配置
+# -----------------------------------------------------------------------------
+# 混合客户端说明:
+#   - 每个请求的输出长度随机（短/长）
+#   - 更接近真实生产环境的请求分布
+# -----------------------------------------------------------------------------
 clients:
   short:
     count: 0
@@ -20,20 +42,8 @@ clients:
   
   mix:
     count: 4
-    qpm: [20, 20, 40, 40]
+    qpm: [20, 20, 40, 40]       # 2个低负载 + 2个高负载
     qpm_ratio: 1
-    slo: [15, 20, 15, 20]  # seconds
+    slo: [15, 20, 15, 20]       # 交叉分配：高负载配宽松 SLO，低负载配紧 SLO
 
-# Experiment Configuration
-experiment:
-  round_num: 10
-  round_time: 60
-  concurrency: 1
-  num_requests: 100
-  request_timeout: 20
-  sleep_time: 5
-
-# Distribution
-distribution: "normal"
-use_time_data: 0
-
+# 公共配置继承自 base_config.yaml
