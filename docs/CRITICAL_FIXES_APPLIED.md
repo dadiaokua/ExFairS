@@ -97,6 +97,80 @@ except Exception:
 
 ---
 
+### 🔴 修复8: Worker无法从Justitia/SLO-Greedy堆中取请求
+
+**症状**:
+```
+running_tasks=0  # 一直是0
+heap_size=183    # 堆中有183个请求
+Success rate: 0.00%  # 所有请求超时
+```
+
+**根本原因**: Worker在计算可用请求数时，只检查了 `request_queue` 和 `priority_queue_list`，**没有检查 `justitia_heap` 和 `slo_greedy_heap`**
+
+**问题代码**:
+```python
+# Worker计算可用请求数（错误）
+normal_queue_size = self.request_queue.qsize()
+priority_queue_size = len(self.priority_queue_list)
+total_available = normal_queue_size + priority_queue_size  # ❌ 没有检查堆
+```
+
+**修复方案**:
+```python
+# 根据策略计算可用的请求数量
+if self.strategy == QueueStrategy.JUSTITIA:
+    total_available = len(self.justitia_heap)
+elif self.strategy == QueueStrategy.SLO_GREEDY:
+    total_available = len(self.slo_greedy_heap)
+else:
+    # 其他策略使用普通队列
+    total_available = self.request_queue.qsize() + len(self.priority_queue_list)
+```
+
+**代码位置**: 
+- `RequestQueueManager.py:1185-1203` - Worker获取可用请求数
+- `RequestQueueManager.py:1234-1248` - Worker统计pending请求数
+
+**效果**: Worker现在能正确检测到堆中的请求并开始处理
+
+---
+
+### 🔴 修复9: 公平性计算返回类型不一致
+
+**症状**:
+```python
+TypeError: 'float' object is not subscriptable
+jains_indices['safi']  # 试图访问字典，但jains_indices是float
+```
+
+**根本原因**: 当所有客户端都没有处理任何token时（`max_service == 0`），`fairness_result` 函数返回单个 `float` 值，而不是字典
+
+**问题代码**:
+```python
+if max_service == 0:
+    tmp_jains_index = calculate_Jains_index(clients, exp_type)
+    return tmp_jains_index, service  # ❌ 返回float，不是dict
+```
+
+**修复方案**:
+```python
+if max_service == 0:
+    # 返回字典格式以保持一致性
+    jains_indices = {
+        "safi": 1.0,  # 完全公平（都是0）
+        "token": 1.0,  # 完全公平（都是0）
+        "slo_violation": 1.0  # 完全公平（都是0）
+    }
+    return jains_indices, service  # ✅ 返回dict
+```
+
+**代码位置**: `util/MathUtil.py:175-185`
+
+**效果**: 公平性计算现在始终返回一致的字典格式，不会再报类型错误
+
+---
+
 ## 2025-12-23 深度分析修复
 
 基于项目深度分析报告，修复了以下严重问题：

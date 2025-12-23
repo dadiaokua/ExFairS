@@ -1187,6 +1187,14 @@ class RequestQueueManager:
                     # 轮询策略：计算所有客户端队列中的请求总数
                     total_available = sum(self.client_queues[client_id].qsize() for client_id in self.client_queues)
                     self.logger.debug(f"Worker {worker_name}: Round-robin strategy, total available requests: {total_available}")
+                elif self.strategy == QueueStrategy.JUSTITIA:
+                    # Justitia策略：使用堆的大小
+                    total_available = len(self.justitia_heap)
+                    self.logger.debug(f"Worker {worker_name}: Justitia strategy, heap size: {total_available}")
+                elif self.strategy == QueueStrategy.SLO_GREEDY:
+                    # SLO-Greedy策略：使用堆的大小
+                    total_available = len(self.slo_greedy_heap)
+                    self.logger.debug(f"Worker {worker_name}: SLO-Greedy strategy, heap size: {total_available}")
                 else:
                     # 其他策略：使用普通队列和优先级队列
                     normal_queue_size = self.request_queue.qsize()
@@ -1234,6 +1242,12 @@ class RequestQueueManager:
                 if self.strategy == QueueStrategy.ROUND_ROBIN:
                     # 轮询策略：计算所有客户端队列中的请求总数
                     total_pending = sum(self.client_queues[client_id].qsize() for client_id in self.client_queues)
+                elif self.strategy == QueueStrategy.JUSTITIA:
+                    # Justitia策略：使用堆的大小
+                    total_pending = len(self.justitia_heap)
+                elif self.strategy == QueueStrategy.SLO_GREEDY:
+                    # SLO-Greedy策略：使用堆的大小
+                    total_pending = len(self.slo_greedy_heap)
                 else:
                     # 其他策略：使用普通队列和优先级队列
                     normal_queue_size = self.request_queue.qsize()

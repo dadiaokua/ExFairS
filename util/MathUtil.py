@@ -180,9 +180,15 @@ async def fairness_result(clients, exp_type, logger):
         for client in clients:
             client.fairness_ratio = 1  # 平均分配
 
-        # 计算Jain's公平性指数
-        tmp_jains_index = calculate_Jains_index(clients, exp_type)
-        return tmp_jains_index, service
+        # 计算Jain's公平性指数 - 返回字典格式以保持一致性
+        # 当所有客户端都没有token时，所有指标都是完全公平的（1.0）
+        jains_indices = {
+            "safi": 1.0,  # 完全公平
+            "token": 1.0,  # 完全公平（都是0）
+            "slo_violation": 1.0  # 完全公平（都是0）
+        }
+        logger.info(f"[Fairness] All clients have zero service, returning perfect fairness indices: {jains_indices}")
+        return jains_indices, service
 
     # Calculate fairness ratios in one pass
     alpha = GLOBAL_CONFIG['alpha']
