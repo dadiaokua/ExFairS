@@ -358,30 +358,68 @@ def calculate_metrics(concurrency, request_timeout, client_id, results, start_ti
 
     # Calculate metrics
     total_elapsed_time = end_time - start_time
-    total_tokens = sum(tokens for tokens, _, _, _, _, _ in results if tokens is not None)
-    total_input_tokens = sum(input_token for _, _, _, _, input_token, _ in results if input_token is not None)
+    
+    # 支持 6 元素（旧格式）和 7 元素（新格式，包含 queue_wait_time）
+    total_tokens = 0
+    total_input_tokens = 0
+    latencies = []
+    tokens_per_second_list = []
+    ttft_list = []
+    slo_violation_count = 0
+    queue_wait_times = []  # 新增：队列等待时间列表
+    inference_times = []   # 新增：推理时间列表
+    
+    for result in results:
+        if result is None:
+            continue
+        
+        # 解析结果，支持 6 元素和 7 元素格式
+        if len(result) >= 6:
+            tokens, elapsed_time, tps, ttft, input_token, slo = result[:6]
+            queue_wait_time = result[6] if len(result) >= 7 else 0
+            
+            if tokens is not None:
+                total_tokens += tokens
+            if input_token is not None:
+                total_input_tokens += input_token
+            if elapsed_time is not None:
+                latencies.append(elapsed_time)
+                # 计算推理时间 = 总时间 - 队列等待时间
+                inference_time = max(0, elapsed_time - queue_wait_time) if queue_wait_time else elapsed_time
+                inference_times.append(inference_time)
+            if tps is not None:
+                tokens_per_second_list.append(tps)
+            if ttft is not None:
+                ttft_list.append(ttft)
+            if slo == 0:
+                slo_violation_count += 1
+            if queue_wait_time and queue_wait_time > 0:
+                queue_wait_times.append(queue_wait_time)
 
     # 添加token调试信息
     print(f"[Debug] {client_id}: total_output_tokens={total_tokens}, total_input_tokens={total_input_tokens}")
+    print(f"[Debug] {client_id}: queue_wait_times count={len(queue_wait_times)}, avg={sum(queue_wait_times)/len(queue_wait_times) if queue_wait_times else 0:.3f}s")
 
-    latencies = [elapsed_time for _, elapsed_time, _, _, _, _ in results if elapsed_time is not None]
-    tokens_per_second_list = [tps for _, _, tps, _, _, _ in results if tps is not None]
-    ttft_list = [ttft for _, _, _, ttft, _, _ in results if ttft is not None]
-    slo_violation_count = len([slo for _, _, _, _, _, slo in results if slo == 0])
-    avg_latency_div_standard_latency = sum(latencies) / len(latencies) / (latency_slo if latency_slo > 0 else 0)
+    avg_latency_div_standard_latency = sum(latencies) / len(latencies) / (latency_slo if latency_slo > 0 else 1) if latencies else 0
 
-    successful_requests = len(results)
+    successful_requests = len(latencies)
     requests_per_second = successful_requests / total_elapsed_time if total_elapsed_time > 0 else 0
     avg_latency = sum(latencies) / len(latencies) if latencies else 0
     avg_tokens_per_second = sum(tokens_per_second_list) / len(
         tokens_per_second_list) if tokens_per_second_list else 0
     avg_ttft = sum(ttft_list) / len(ttft_list) if ttft_list else 0
+    
+    # 新增：队列等待时间和推理时间统计
+    avg_queue_wait_time = sum(queue_wait_times) / len(queue_wait_times) if queue_wait_times else 0
+    avg_inference_time = sum(inference_times) / len(inference_times) if inference_times else avg_latency
 
     # Calculate percentiles
     percentiles = [50, 95, 99]
     latency_percentiles = [calculate_percentile(latencies, p) for p in percentiles]
     tps_percentiles = [calculate_percentile(tokens_per_second_list, p, reverse=True) for p in percentiles]
     ttft_percentiles = [calculate_percentile(ttft_list, p) for p in percentiles]
+    queue_wait_percentiles = [calculate_percentile(queue_wait_times, p) for p in percentiles] if queue_wait_times else [0, 0, 0]
+    inference_percentiles = [calculate_percentile(inference_times, p) for p in percentiles] if inference_times else latency_percentiles
 
     return {
         "credit": credit,
@@ -418,6 +456,20 @@ def calculate_metrics(concurrency, request_timeout, client_id, results, start_ti
             "p50": ttft_percentiles[0],
             "p95": ttft_percentiles[1],
             "p99": ttft_percentiles[2]
+        },
+        # 新增：队列等待时间统计
+        "queue_wait_time": {
+            "average": avg_queue_wait_time,
+            "p50": queue_wait_percentiles[0],
+            "p95": queue_wait_percentiles[1],
+            "p99": queue_wait_percentiles[2]
+        },
+        # 新增：推理时间统计（不含队列等待）
+        "inference_time": {
+            "average": avg_inference_time,
+            "p50": inference_percentiles[0],
+            "p95": inference_percentiles[1],
+            "p99": inference_percentiles[2]
         },
         "client_index": client_id,
     }

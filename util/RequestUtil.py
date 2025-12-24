@@ -531,10 +531,30 @@ async def worker_with_queue(experiment, queue_manager, semaphore, results, worke
     experiment.logger.info(
         f"Client {main_client_id} Worker {worker_id}: Total requests: {request_count}, Completed: {completed}, Failed: {failed_count}, Timeout: {timeout_count}, Uncompleted: {uncompleted_count}")
     experiment.logger.info(
-        f"Client {main_client_id} Worker {worker_id}: Success rate: {completed / len(submitted_requests) * 100:.2f}%")
+        f"Client {main_client_id} Worker {worker_id}: Success rate: {completed / len(submitted_requests) * 100:.2f}%" if submitted_requests else "No requests submitted")
     experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: Total tokens processed: {tokens_counter.value}")
     experiment.logger.info(
         f"Client {main_client_id} Worker {worker_id}: Total elapsed time: {total_elapsed_time:.2f} seconds, Round time: {experiment.round_time:.2f} seconds")
+    
+    # 记录阶段时间到实验对象（用于后续分析）
+    if not hasattr(experiment, 'phase_timings'):
+        experiment.phase_timings = []
+    experiment.phase_timings.append({
+        'worker_id': worker_id,
+        'submission_time': submission_time,
+        'collection_time': collection_time,
+        'total_time': total_elapsed_time,
+        'configured_round_time': experiment.round_time,
+        'request_count': request_count,
+        'completed': completed,
+        'uncompleted': uncompleted_count
+    })
+    
+    # 打印阶段时间摘要
+    experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: ⏱️ Phase Timings:")
+    experiment.logger.info(f"  - Submission phase: {submission_time:.2f}s")
+    experiment.logger.info(f"  - Collection phase: {collection_time:.2f}s") 
+    experiment.logger.info(f"  - Total elapsed: {total_elapsed_time:.2f}s (configured: {experiment.round_time:.0f}s)")
 
     return completed, drift_time, request_count
 

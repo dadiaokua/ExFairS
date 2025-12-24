@@ -17,10 +17,12 @@ from collections import defaultdict
 try:
     import matplotlib.pyplot as plt
     import matplotlib
+    import numpy as np
     matplotlib.use('Agg')  # 非交互式后端
     HAS_MATPLOTLIB = True
 except ImportError:
     HAS_MATPLOTLIB = False
+    np = None
     print("[WARNING] matplotlib not installed. Install via: pip install matplotlib")
 
 # 策略显示名称和颜色（学术风格配色）
@@ -111,6 +113,8 @@ def extract_metrics(results: dict) -> dict:
         avg_latencies = []
         p95_latencies = []
         p99_latencies = []
+        queue_latencies = []
+        inference_latencies = []
         
         for user_data in users.values():
             stats = user_data.get('stats', {})
@@ -119,17 +123,25 @@ def extract_metrics(results: dict) -> dict:
                 avg_lat = stats.get('avg_total_latency', 0) * 1000
                 p95_lat = stats.get('p95_latency', 0) * 1000
                 p99_lat = stats.get('p99_latency', 0) * 1000
+                queue_lat = stats.get('avg_queue_latency', 0) * 1000
+                inference_lat = stats.get('avg_inference_latency', 0) * 1000
                 avg_latencies.append(avg_lat)
                 p95_latencies.append(p95_lat)
                 p99_latencies.append(p99_lat)
+                queue_latencies.append(queue_lat)
+                inference_latencies.append(inference_lat)
         
         avg_latency = sum(avg_latencies) / len(avg_latencies) if avg_latencies else 0
+        avg_queue_latency = sum(queue_latencies) / len(queue_latencies) if queue_latencies else 0
+        avg_inference_latency = sum(inference_latencies) / len(inference_latencies) if inference_latencies else 0
         
         metrics[strategy] = {
             'completion_rate': (total_completed / total_sent * 100) if total_sent > 0 else 0,
             'slo_violation_rate': (total_slo / total_completed * 100) if total_completed > 0 else 0,
             'timeout_rate': (total_timeout / total_sent * 100) if total_sent > 0 else 0,
             'avg_latency_ms': avg_latency,
+            'avg_queue_latency_ms': avg_queue_latency,
+            'avg_inference_latency_ms': avg_inference_latency,
             'p95_latency_ms': max(p95_latencies) if p95_latencies else 0,
             'p99_latency_ms': max(p99_latencies) if p99_latencies else 0,
             'jain_index': fairness.get('jain_index_safi', fairness.get('jain_index', 0)),
@@ -201,18 +213,39 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + label_offset, f'{val:.1f}%', 
                 ha='center', va='bottom', fontsize=8)
     
-    # 3. 平均延迟
+    # 3. 平均延迟（堆叠：队列时间 + 推理时间）
     ax = axes1[0, 2]
-    values = [metrics[s]['avg_latency_ms'] / 1000 for s in strategies]
-    bars = ax.bar(labels, values, color=colors, edgecolor='black', linewidth=0.5)
-    ax.set_ylabel('Average Latency (s)', fontsize=10)
-    ax.set_title('(c) Average Latency ↓', fontsize=10)
+    x = np.arange(len(strategies))
+    width = 0.6
+    
+    # 获取队列时间和推理时间（毫秒转秒）
+    queue_times = [metrics[s].get('avg_queue_latency_ms', 0) / 1000 for s in strategies]
+    inference_times = [metrics[s].get('avg_inference_latency_ms', 0) / 1000 for s in strategies]
+    total_times = [metrics[s]['avg_latency_ms'] / 1000 for s in strategies]
+    
+    # 如果没有队列时间数据，使用总延迟
+    if sum(queue_times) == 0:
+        queue_times = [0] * len(strategies)
+        inference_times = total_times
+    
+    # 绘制堆叠柱状图
+    bars1 = ax.bar(x, queue_times, width, label='Queue Wait', color='#ff9999', edgecolor='black', linewidth=0.5)
+    bars2 = ax.bar(x, inference_times, width, bottom=queue_times, label='Inference', color=colors, edgecolor='black', linewidth=0.5)
+    
+    ax.set_ylabel('Latency (s)', fontsize=10)
+    ax.set_title('(c) Latency Breakdown ↓', fontsize=10)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=9)
+    ax.legend(loc='upper right', fontsize=8)
+    
     # 自动调整 y 轴范围
-    max_val = max(values) if values else 1
+    max_val = max(total_times) if total_times else 1
     ax.set_ylim(0, max_val * 1.3)
-    for bar, val in zip(bars, values):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max_val * 0.05, f'{val:.2f}s', 
-                ha='center', va='bottom', fontsize=9)
+    
+    # 在柱子上方显示总时间
+    for i, (q, inf, total) in enumerate(zip(queue_times, inference_times, total_times)):
+        ax.text(i, q + inf + max_val * 0.02, f'{total:.3f}s', 
+                ha='center', va='bottom', fontsize=8)
     
     # 4. Jain Index (SAFI)
     ax = axes1[1, 0]

@@ -1023,6 +1023,12 @@ class RequestQueueManager:
             if self.strategy == QueueStrategy.JUSTITIA:
                 await self._justitia_task_finished(request.request_id)
 
+            # 返回增强的结果，添加队列等待时间
+            # 原结果格式: (output_tokens, elapsed_time, tokens_per_second, ttft, input_tokens, slo_met)
+            # 新增第7个值: queue_wait_time = wait_time
+            if isinstance(result, (tuple, list)):
+                enhanced_result = tuple(result) + (wait_time,)
+                return enhanced_result
             return result
         except Exception as e:
             self.logger.error(f"Error processing request {request.request_id} from {request.client_id}: {str(e)}")

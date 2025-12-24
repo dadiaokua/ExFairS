@@ -126,9 +126,34 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
             logger.error("CRITICAL: Neither vLLM engine nor OpenAI client is available")
             raise RuntimeError("No request processing method available")
         
+        # 动态计算 worker 数量：基于总客户端数和总 QPM
+        total_clients = args.short_clients + args.long_clients + args.mix_clients
+        
+        # 计算总 QPM
+        total_qpm = 0
+        for i in range(args.short_clients):
+            qpm = safe_float_conversion(args.short_qpm[0] if len(args.short_qpm) == 1 else args.short_qpm[i])
+            total_qpm += qpm
+        for i in range(args.long_clients):
+            qpm = safe_float_conversion(args.long_qpm[0] if len(args.long_qpm) == 1 else args.long_qpm[i])
+            total_qpm += qpm
+        for i in range(args.mix_clients):
+            qpm = safe_float_conversion(args.mix_qpm[0] if len(args.mix_qpm) == 1 else args.mix_qpm[i])
+            total_qpm += qpm
+        
+        # 计算 worker 数量：
+        # - 基础：每个客户端至少 1 个 worker
+        # - 按 QPM 增加：每 10 QPM 增加 1 个 worker
+        # - 最小 5，最大 50
+        base_workers = total_clients
+        qpm_workers = int(total_qpm / 10)
+        num_workers = max(5, min(50, base_workers + qpm_workers))
+        
+        logger.info(f"📊 Dynamic worker calculation: {total_clients} clients, {total_qpm:.0f} total QPM → {num_workers} workers")
+        
         # 启动队列管理器（在后台运行）
-        queue_manager_task = asyncio.create_task(queue_manager.start_processing(num_workers=5))
-        logger.info(f"Created queue manager with strategy: {strategy.value}")
+        queue_manager_task = asyncio.create_task(queue_manager.start_processing(num_workers=num_workers))
+        logger.info(f"Created queue manager with strategy: {strategy.value}, workers: {num_workers}")
         
         # 等待一小段时间确保队列管理器正常启动
         await asyncio.sleep(2.0)

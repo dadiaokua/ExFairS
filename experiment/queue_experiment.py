@@ -28,7 +28,13 @@ class QueueExperiment(BaseExperiment):
         # 队列管理器
         self.queue_manager = queue_manager
         self.queue_strategy = queue_strategy
-        self.queue_workers = 5  # 队列处理worker数量 - 减少到5个，避免过多空闲worker
+        
+        # 动态计算 worker 数量：基于 QPM
+        # - 基础 5 个 worker
+        # - 每 10 QPM 增加 1 个 worker
+        # - 最大 20 个
+        client_qpm = getattr(client, 'qpm', 10)
+        self.queue_workers = max(5, min(20, 5 + int(client_qpm / 10)))
 
         # 如果没有提供队列管理器，创建一个新的
         if self.queue_manager is None:

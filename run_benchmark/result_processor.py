@@ -130,14 +130,18 @@ def save_results_new_format(benchmark_results, fairness_results, args, start_tim
             if isinstance(latency_data, dict):
                 user_stats['latencies'].append(latency_data.get('p99', 0) / 1000)  # 转换为秒
             
-            # 收集排队延迟（如果有）
-            # 注意：这个字段可能不存在于当前数据结构中
+            # 收集排队延迟（新格式支持）
+            queue_wait_data = round_data.get('queue_wait_time', {})
+            if isinstance(queue_wait_data, dict) and queue_wait_data.get('average', 0) > 0:
+                user_stats['queue_latencies'].append(queue_wait_data.get('average', 0))
         
         # 计算平均值
         if user_stats['count'] > 0:
             avg_latency = sum(user_stats['latencies']) / len(user_stats['latencies']) if user_stats['latencies'] else 0
             p95_latency = sorted(user_stats['latencies'])[int(len(user_stats['latencies']) * 0.95)] if user_stats['latencies'] else 0
             p99_latency = sorted(user_stats['latencies'])[int(len(user_stats['latencies']) * 0.99)] if user_stats['latencies'] else 0
+            avg_queue_latency = sum(user_stats['queue_latencies']) / len(user_stats['queue_latencies']) if user_stats['queue_latencies'] else 0
+            avg_inference_latency = avg_latency - avg_queue_latency if avg_queue_latency > 0 else avg_latency
             
             users[user_id] = {
                 'stats': {
@@ -145,7 +149,8 @@ def save_results_new_format(benchmark_results, fairness_results, args, start_tim
                     'avg_total_latency': avg_latency,
                     'p95_latency': p95_latency,
                     'p99_latency': p99_latency,
-                    'avg_queue_latency': 0,  # 暂时设为0
+                    'avg_queue_latency': avg_queue_latency,
+                    'avg_inference_latency': avg_inference_latency,
                     'successful': user_stats['successful'],
                     'slo_violations': user_stats['slo_violations'],
                     'timeouts': user_stats['timeouts']

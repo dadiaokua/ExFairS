@@ -155,7 +155,7 @@ class ExperimentMonitor:
             await self._check_results()
             if self.log_gpu_data == 0:
                 self._log_gpu_status()
-            await asyncio.sleep(5)  # 每5秒检查一次
+            await asyncio.sleep(0.5)  # 减少轮询间隔，加快响应速度
 
         self.logger.info(f'Experiment duration reached. Monitoring stopped.')
         return self.fairness_results
@@ -211,21 +211,30 @@ class ExperimentMonitor:
         return requests
 
     async def _check_results(self):
-        """检查结果队列并处理结果"""
-        if not self.result_queue.empty():
-            self.logger.info('Queue not empty, getting next result...')
+        """检查结果队列并批量处理所有结果"""
+        results_processed = 0
+        
+        # 批量处理队列中的所有结果
+        while not self.result_queue.empty():
             try:
-                result = await asyncio.wait_for(self.result_queue.get(), timeout=10)
+                result = await asyncio.wait_for(self.result_queue.get(), timeout=1)
                 self.tmp_results.append(result)
-                self.logger.info(f'Current completed client numbers: {len(self.tmp_results)}')
-
-                if len(self.tmp_results) == self.client_count:
-                    await self._process_complete_round()
-
+                results_processed += 1
                 self.result_queue.task_done()
-                self.logger.info('Task marked as done')
+                
+                # 检查是否完成一轮
+                if len(self.tmp_results) == self.client_count:
+                    self.logger.info(f'All {self.client_count} clients completed, processing round...')
+                    await self._process_complete_round()
+                    
             except asyncio.TimeoutError:
-                self.logger.warning("Timeout while waiting for result.")
+                break
+            except Exception as e:
+                self.logger.error(f"Error getting result from queue: {e}")
+                break
+        
+        if results_processed > 0:
+            self.logger.info(f'Batch processed {results_processed} results, current completed: {len(self.tmp_results)}/{self.client_count}')
 
     @timing_decorator
     async def _process_complete_round(self):
