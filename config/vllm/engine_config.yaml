@@ -2,8 +2,8 @@
 # This file contains all vLLM engine parameters
 
 # Model Configuration
-model_path: "/Users/myrick/modelHub/hub/models--Qwen--Qwen3-8B"
-tokenizer_path: "/Users/myrick/modelHub/hub/Qwen3-8B"
+model_path: "/home/llm/model_hub/Qwen3-8B"
+tokenizer_path: "/home/llm/model_hub/Qwen3-8B"
 request_model_name: "Qwen2.5-32B"
 
 # Parallelism Configuration
