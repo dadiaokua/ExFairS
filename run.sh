@@ -294,8 +294,8 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
             fi
         done
         if [[ $((scenario_index + 1)) -lt ${#SCENARIO_ARRAY[@]} ]]; then
-            echo "⏸️  场景间隔，等待 60 秒..." | tee -a "$LOG_FILE"
-            sleep 60
+            echo "⏸️  场景间隔，等待 30 秒..." | tee -a "$LOG_FILE"
+            sleep 30
         fi
     done
     
@@ -421,8 +421,8 @@ else
         
         # 等待
         if [[ ${#EXP_ARRAY[@]} -gt 1 ]]; then
-            echo "⏱️  等待 30 秒..."
-            sleep 30
+            echo "⏱️  等待 10 秒..."
+            sleep 10
         fi
     done
     

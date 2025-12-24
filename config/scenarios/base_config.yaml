@@ -17,11 +17,11 @@ experiment:
   # round_num: 每个策略运行的轮数
   # - 每轮会重新初始化客户端统计信息
   # - 增加轮数可以获得更稳定的平均结果
-  round_num: 5
+  round_num: 10
 
   # round_time: 每轮实验的持续时间（秒）
   # - 每轮结束后会等待所有请求完成
-  round_time: 300
+  round_time: 150
 
   # concurrency: 并发级别（保留参数，当前未使用）
   concurrency: 1
