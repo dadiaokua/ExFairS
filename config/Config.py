@@ -22,7 +22,7 @@ GLOBAL_CONFIG = {
     "prompt_max_len": 10000,
     "request_model_name": "",
     "buffer_ratio": 0.2,
-    "request_timeout": 60,  # 增加请求超时时间到60秒
+    "request_timeout": 30,  # 单个请求超时时间（秒），会被场景配置覆盖
     
     # AsyncLLMEngine采样参数
     "sampling_temperature": 0.7,

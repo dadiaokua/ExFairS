@@ -11,7 +11,7 @@ tensor_parallel_size: 8
 pipeline_parallel_size: 1
 
 # Memory Configuration
-gpu_memory_utilization: 0.8
+gpu_memory_utilization: 0.9
 swap_space: 0  # GB
 
 # Model Limits

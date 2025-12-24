@@ -45,10 +45,11 @@ def save_results_new_format(benchmark_results, fairness_results, args, start_tim
             "user1": {
                 "stats": {
                     "count": 100,
-                    "avg_total_latency": 2.5,
-                    "p95_latency": 4.2,
-                    "p99_latency": 5.8,
-                    "avg_queue_latency": 1.0
+                    "avg_total_latency_ms": 500,      # 毫秒
+                    "p95_latency_ms": 800,            # 毫秒
+                    "p99_latency_ms": 1000,           # 毫秒
+                    "avg_queue_latency_ms": 400,     # 毫秒
+                    "avg_inference_latency_ms": 100  # 毫秒
                 }
             }
         },
@@ -58,6 +59,8 @@ def save_results_new_format(benchmark_results, fairness_results, args, start_tim
             "jain_index_slo_violation": 0.88
         }
     }
+    
+    注意：所有延迟单位统一为毫秒(ms)
     """
     # 确定run_id（优先使用传入的run_id，否则使用开始时间）
     if hasattr(args, 'run_id') and args.run_id:
@@ -125,32 +128,40 @@ def save_results_new_format(benchmark_results, fairness_results, args, start_tim
             user_stats['slo_violations'] += round_data.get('slo_violation_count', 0)
             user_stats['timeouts'] += round_data.get('total_requests', 0) - round_data.get('successful_requests', 0)
             
-            # 收集延迟数据
+            # 收集延迟数据（全部统一为毫秒）
+            # latency 单位是毫秒，是推理时间（不含排队）
+            # queue_wait_time 单位是秒，需要转换为毫秒
             latency_data = round_data.get('latency', {})
-            if isinstance(latency_data, dict):
-                user_stats['latencies'].append(latency_data.get('p99', 0) / 1000)  # 转换为秒
-            
-            # 收集排队延迟（新格式支持）
             queue_wait_data = round_data.get('queue_wait_time', {})
-            if isinstance(queue_wait_data, dict) and queue_wait_data.get('average', 0) > 0:
-                user_stats['queue_latencies'].append(queue_wait_data.get('average', 0))
+            
+            inference_time_ms = latency_data.get('average', 0) if isinstance(latency_data, dict) else 0
+            queue_time_sec = queue_wait_data.get('average', 0) if isinstance(queue_wait_data, dict) else 0
+            queue_time_ms = queue_time_sec * 1000  # 转换为毫秒
+            
+            if inference_time_ms > 0:
+                # 总延迟 = 排队时间 + 推理时间（全部毫秒）
+                total_latency_ms = queue_time_ms + inference_time_ms
+                user_stats['latencies'].append(total_latency_ms)
+            
+            if queue_time_ms > 0:
+                user_stats['queue_latencies'].append(queue_time_ms)  # 毫秒
         
-        # 计算平均值
+        # 计算平均值（全部毫秒）
         if user_stats['count'] > 0:
-            avg_latency = sum(user_stats['latencies']) / len(user_stats['latencies']) if user_stats['latencies'] else 0
-            p95_latency = sorted(user_stats['latencies'])[int(len(user_stats['latencies']) * 0.95)] if user_stats['latencies'] else 0
-            p99_latency = sorted(user_stats['latencies'])[int(len(user_stats['latencies']) * 0.99)] if user_stats['latencies'] else 0
-            avg_queue_latency = sum(user_stats['queue_latencies']) / len(user_stats['queue_latencies']) if user_stats['queue_latencies'] else 0
-            avg_inference_latency = avg_latency - avg_queue_latency if avg_queue_latency > 0 else avg_latency
+            avg_latency_ms = sum(user_stats['latencies']) / len(user_stats['latencies']) if user_stats['latencies'] else 0
+            p95_latency_ms = sorted(user_stats['latencies'])[int(len(user_stats['latencies']) * 0.95)] if user_stats['latencies'] else 0
+            p99_latency_ms = sorted(user_stats['latencies'])[int(len(user_stats['latencies']) * 0.99)] if user_stats['latencies'] else 0
+            avg_queue_latency_ms = sum(user_stats['queue_latencies']) / len(user_stats['queue_latencies']) if user_stats['queue_latencies'] else 0
+            avg_inference_latency_ms = avg_latency_ms - avg_queue_latency_ms if avg_queue_latency_ms > 0 else avg_latency_ms
             
             users[user_id] = {
                 'stats': {
                     'count': user_stats['count'],
-                    'avg_total_latency': avg_latency,
-                    'p95_latency': p95_latency,
-                    'p99_latency': p99_latency,
-                    'avg_queue_latency': avg_queue_latency,
-                    'avg_inference_latency': avg_inference_latency,
+                    'avg_total_latency_ms': avg_latency_ms,           # 毫秒
+                    'p95_latency_ms': p95_latency_ms,                 # 毫秒
+                    'p99_latency_ms': p99_latency_ms,                 # 毫秒
+                    'avg_queue_latency_ms': avg_queue_latency_ms,     # 毫秒
+                    'avg_inference_latency_ms': avg_inference_latency_ms,  # 毫秒
                     'successful': user_stats['successful'],
                     'slo_violations': user_stats['slo_violations'],
                     'timeouts': user_stats['timeouts']

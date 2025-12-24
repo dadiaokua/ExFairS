@@ -91,10 +91,15 @@ def extract_metrics(results: dict) -> dict:
     """
     从结果中提取关键指标
     
-    注意：results.json 中的数据结构：
-    - users[user_id]['stats']['avg_total_latency'] (秒)
-    - users[user_id]['stats']['p95_latency'] (秒)
+    注意：results.json 中的数据结构（所有延迟单位统一为毫秒）：
+    - users[user_id]['stats']['avg_total_latency_ms'] (毫秒)
+    - users[user_id]['stats']['p95_latency_ms'] (毫秒)
+    - users[user_id]['stats']['avg_queue_latency_ms'] (毫秒)
+    - users[user_id]['stats']['avg_inference_latency_ms'] (毫秒)
     - summary['total_requests']
+    
+    兼容旧格式（秒）：
+    - users[user_id]['stats']['avg_total_latency'] (秒) -> 转换为毫秒
     """
     metrics = {}
     
@@ -109,7 +114,7 @@ def extract_metrics(results: dict) -> dict:
         total_slo = summary.get('total_slo_violations', 0)
         total_timeout = summary.get('total_timeout', 0)
         
-        # 计算用户平均延迟（数据在 stats 子字典中，单位是秒）
+        # 计算用户平均延迟（全部毫秒）
         avg_latencies = []
         p95_latencies = []
         p99_latencies = []
@@ -119,12 +124,23 @@ def extract_metrics(results: dict) -> dict:
         for user_data in users.values():
             stats = user_data.get('stats', {})
             if stats.get('count', 0) > 0:
-                # 延迟单位是秒，转换为毫秒
-                avg_lat = stats.get('avg_total_latency', 0) * 1000
-                p95_lat = stats.get('p95_latency', 0) * 1000
-                p99_lat = stats.get('p99_latency', 0) * 1000
-                queue_lat = stats.get('avg_queue_latency', 0) * 1000
-                inference_lat = stats.get('avg_inference_latency', 0) * 1000
+                # 优先使用新格式（_ms 后缀，已经是毫秒）
+                # 如果没有，使用旧格式（秒，需要 *1000 转换为毫秒）
+                if 'avg_total_latency_ms' in stats:
+                    # 新格式：直接使用毫秒值
+                    avg_lat = stats.get('avg_total_latency_ms', 0)
+                    p95_lat = stats.get('p95_latency_ms', 0)
+                    p99_lat = stats.get('p99_latency_ms', 0)
+                    queue_lat = stats.get('avg_queue_latency_ms', 0)
+                    inference_lat = stats.get('avg_inference_latency_ms', 0)
+                else:
+                    # 旧格式：秒 -> 毫秒
+                    avg_lat = stats.get('avg_total_latency', 0) * 1000
+                    p95_lat = stats.get('p95_latency', 0) * 1000
+                    p99_lat = stats.get('p99_latency', 0) * 1000
+                    queue_lat = stats.get('avg_queue_latency', 0) * 1000
+                    inference_lat = stats.get('avg_inference_latency', 0) * 1000
+                
                 avg_latencies.append(avg_lat)
                 p95_latencies.append(p95_lat)
                 p99_latencies.append(p99_lat)
@@ -139,11 +155,11 @@ def extract_metrics(results: dict) -> dict:
             'completion_rate': (total_completed / total_sent * 100) if total_sent > 0 else 0,
             'slo_violation_rate': (total_slo / total_completed * 100) if total_completed > 0 else 0,
             'timeout_rate': (total_timeout / total_sent * 100) if total_sent > 0 else 0,
-            'avg_latency_ms': avg_latency,
-            'avg_queue_latency_ms': avg_queue_latency,
-            'avg_inference_latency_ms': avg_inference_latency,
-            'p95_latency_ms': max(p95_latencies) if p95_latencies else 0,
-            'p99_latency_ms': max(p99_latencies) if p99_latencies else 0,
+            'avg_latency_ms': avg_latency,              # 毫秒
+            'avg_queue_latency_ms': avg_queue_latency,  # 毫秒
+            'avg_inference_latency_ms': avg_inference_latency,  # 毫秒
+            'p95_latency_ms': max(p95_latencies) if p95_latencies else 0,  # 毫秒
+            'p99_latency_ms': max(p99_latencies) if p99_latencies else 0,  # 毫秒
             'jain_index': fairness.get('jain_index_safi', fairness.get('jain_index', 0)),
             'jain_index_token': fairness.get('jain_index_token', 0),
             'jain_index_slo': fairness.get('jain_index_slo_violation', 0),
@@ -213,39 +229,45 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + label_offset, f'{val:.1f}%', 
                 ha='center', va='bottom', fontsize=8)
     
-    # 3. 平均延迟（堆叠：队列时间 + 推理时间）
+    # 3. 平均延迟（堆叠图：排队时间 + 推理时间，单位统一为毫秒）
     ax = axes1[0, 2]
     x = np.arange(len(strategies))
     width = 0.6
     
-    # 获取队列时间和推理时间（毫秒转秒）
-    queue_times = [metrics[s].get('avg_queue_latency_ms', 0) / 1000 for s in strategies]
-    inference_times = [metrics[s].get('avg_inference_latency_ms', 0) / 1000 for s in strategies]
-    total_times = [metrics[s]['avg_latency_ms'] / 1000 for s in strategies]
+    # 获取总延迟、排队时间（全部毫秒）
+    total_times_ms = [metrics[s]['avg_latency_ms'] for s in strategies]
+    queue_times_ms = [max(0, metrics[s].get('avg_queue_latency_ms', 0)) for s in strategies]
     
-    # 如果没有队列时间数据，使用总延迟
-    if sum(queue_times) == 0:
-        queue_times = [0] * len(strategies)
-        inference_times = total_times
+    # 推理时间 = 总延迟 - 排队时间（确保非负，毫秒）
+    inference_times_ms = [max(0, t - q) for t, q in zip(total_times_ms, queue_times_ms)]
     
-    # 绘制堆叠柱状图
-    bars1 = ax.bar(x, queue_times, width, label='Queue Wait', color='#ff9999', edgecolor='black', linewidth=0.5)
-    bars2 = ax.bar(x, inference_times, width, bottom=queue_times, label='Inference', color=colors, edgecolor='black', linewidth=0.5)
+    # 检查是否有有效的排队时间数据
+    has_queue_data = sum(queue_times_ms) > 1  # 大于1ms才认为有数据
     
-    ax.set_ylabel('Latency (s)', fontsize=10)
-    ax.set_title('(c) Latency Breakdown ↓', fontsize=10)
+    if has_queue_data:
+        # 绘制堆叠柱状图
+        bars1 = ax.bar(x, queue_times_ms, width, label='Queue Wait', color='#ff9999', edgecolor='black', linewidth=0.5)
+        bars2 = ax.bar(x, inference_times_ms, width, bottom=queue_times_ms, label='Inference', color=colors, edgecolor='black', linewidth=0.5)
+        ax.legend(loc='upper right', fontsize=8)
+        ax.set_title('(c) Latency Breakdown ↓', fontsize=10)
+    else:
+        # 没有排队数据，显示简单柱状图
+        bars = ax.bar(x, total_times_ms, width, color=colors, edgecolor='black', linewidth=0.5)
+        ax.set_title('(c) Average Latency ↓', fontsize=10)
+    
+    ax.set_ylabel('Latency (ms)', fontsize=10)
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=9)
-    ax.legend(loc='upper right', fontsize=8)
     
-    # 自动调整 y 轴范围
-    max_val = max(total_times) if total_times else 1
-    ax.set_ylim(0, max_val * 1.3)
+    # 自动调整 y 轴范围（毫秒）
+    max_val_ms = max(total_times_ms) if total_times_ms else 100
+    ax.set_ylim(0, max_val_ms * 1.3)
     
-    # 在柱子上方显示总时间
-    for i, (q, inf, total) in enumerate(zip(queue_times, inference_times, total_times)):
-        ax.text(i, q + inf + max_val * 0.02, f'{total:.3f}s', 
-                ha='center', va='bottom', fontsize=8)
+    # 在柱子上方显示总延迟值（毫秒）
+    for i, total_ms in enumerate(total_times_ms):
+        label = f'{total_ms:.0f}ms'
+        y_pos = total_ms + max_val_ms * 0.03
+        ax.text(i, y_pos, label, ha='center', va='bottom', fontsize=8)
     
     # 4. Jain Index (SAFI)
     ax = axes1[1, 0]
@@ -262,26 +284,26 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, f'{val:.4f}', 
                 ha='center', va='bottom', fontsize=8)
     
-    # 5. P95/P99 延迟
+    # 5. P95/P99 延迟（毫秒）
     ax = axes1[1, 1]
     x = range(len(strategies))
     width = 0.35
-    p95_values = [metrics[s]['p95_latency_ms'] / 1000 for s in strategies]
-    p99_values = [metrics[s]['p99_latency_ms'] / 1000 for s in strategies]
+    p95_values_ms = [metrics[s]['p95_latency_ms'] for s in strategies]
+    p99_values_ms = [metrics[s]['p99_latency_ms'] for s in strategies]
     
-    ax.bar([xi - width/2 for xi in x], p95_values, width, label='P95', 
+    ax.bar([xi - width/2 for xi in x], p95_values_ms, width, label='P95', 
            color='#7fc97f', edgecolor='black', linewidth=0.5)
-    ax.bar([xi + width/2 for xi in x], p99_values, width, label='P99', 
+    ax.bar([xi + width/2 for xi in x], p99_values_ms, width, label='P99', 
            color='#beaed4', edgecolor='black', linewidth=0.5)
-    ax.set_ylabel('Latency (s)', fontsize=10)
+    ax.set_ylabel('Latency (ms)', fontsize=10)
     ax.set_title('(e) P95/P99 Latency ↓', fontsize=10)
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
     ax.legend(fontsize=8)
-    # 自动调整 y 轴
-    all_latencies = p95_values + p99_values
-    max_lat = max(all_latencies) if all_latencies else 1
-    ax.set_ylim(0, max_lat * 1.3)
+    # 自动调整 y 轴（毫秒）
+    all_latencies_ms = p95_values_ms + p99_values_ms
+    max_lat_ms = max(all_latencies_ms) if all_latencies_ms else 100
+    ax.set_ylim(0, max_lat_ms * 1.3)
     
     # 6. Goodput (成功完成的请求数)
     ax = axes1[1, 2]

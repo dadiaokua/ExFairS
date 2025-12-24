@@ -376,7 +376,9 @@ def calculate_metrics(concurrency, request_timeout, client_id, results, start_ti
         # 解析结果，支持 6 元素和 7 元素格式
         if len(result) >= 6:
             tokens, elapsed_time, tps, ttft, input_token, slo = result[:6]
-            queue_wait_time = result[6] if len(result) >= 7 else 0
+            # queue_wait_time 是秒，需要转换为毫秒（与 elapsed_time 单位一致）
+            queue_wait_time_sec = result[6] if len(result) >= 7 else 0
+            queue_wait_time_ms = queue_wait_time_sec * 1000  # 转换为毫秒
             
             if tokens is not None:
                 total_tokens += tokens
@@ -384,8 +386,8 @@ def calculate_metrics(concurrency, request_timeout, client_id, results, start_ti
                 total_input_tokens += input_token
             if elapsed_time is not None:
                 latencies.append(elapsed_time)
-                # 计算推理时间 = 总时间 - 队列等待时间
-                inference_time = max(0, elapsed_time - queue_wait_time) if queue_wait_time else elapsed_time
+                # 计算推理时间 = 总时间(ms) - 队列等待时间(ms)
+                inference_time = max(0, elapsed_time - queue_wait_time_ms) if queue_wait_time_ms else elapsed_time
                 inference_times.append(inference_time)
             if tps is not None:
                 tokens_per_second_list.append(tps)
@@ -393,8 +395,8 @@ def calculate_metrics(concurrency, request_timeout, client_id, results, start_ti
                 ttft_list.append(ttft)
             if slo == 0:
                 slo_violation_count += 1
-            if queue_wait_time and queue_wait_time > 0:
-                queue_wait_times.append(queue_wait_time)
+            if queue_wait_time_ms and queue_wait_time_ms > 0:
+                queue_wait_times.append(queue_wait_time_ms)  # 存储毫秒值
 
     # 添加token调试信息
     print(f"[Debug] {client_id}: total_output_tokens={total_tokens}, total_input_tokens={total_input_tokens}")

@@ -37,13 +37,13 @@ description: "Balanced load with 2 short and 2 long clients, all with QPM=50"
 clients:
   short:
     count: 2
-    qpm: [50, 50]        # 两个客户端都是 50 QPM
+    qpm: [32, 32]        # 调整后 QPM，总共 128 QPM (原 200)
     qpm_ratio: 1
     slo: [20, 30]        # SLO 分别为 20 秒和 30 秒
   
   long:
     count: 2
-    qpm: [50, 50]        # 与短请求客户端相同的 QPM
+    qpm: [32, 32]        # 与短请求客户端相同的 QPM
     qpm_ratio: 1
     slo: [20, 30]        # SLO 分别为 20 秒和 30 秒
   

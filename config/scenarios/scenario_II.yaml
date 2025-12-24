@@ -30,13 +30,13 @@ description: "Imbalanced load with polarized QPM: 10 and 90"
 clients:
   short:
     count: 2
-    qpm: [10, 90]        # 极端不平衡: 1:9 的 QPM 比例
+    qpm: [6, 58]         # 调整后保持 1:9 比例，总共 128 QPM (原 200)
     qpm_ratio: 1
     slo: [20, 20]        # 相同的 SLO，便于对比公平性
   
   long:
     count: 2
-    qpm: [10, 90]        # 长请求也是相同的不平衡分布
+    qpm: [6, 58]         # 长请求也是相同的不平衡分布
     qpm_ratio: 1
     slo: [20, 20]        # 相同的 SLO
   
