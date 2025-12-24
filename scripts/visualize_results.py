@@ -168,8 +168,8 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
     os.makedirs(output_dir, exist_ok=True)
     
     # ========== 图1: 基础性能指标 ==========
-    fig1, axes1 = plt.subplots(2, 3, figsize=(15, 8))
-    fig1.suptitle(f'Performance Comparison - {scenario_name}', fontsize=14, fontweight='bold')
+    fig1, axes1 = plt.subplots(2, 3, figsize=(18, 10))
+    fig1.suptitle(f'Performance Comparison - {scenario_name}', fontsize=16, fontweight='bold')
     
     # 设置学术风格
     for ax in axes1.flat:
@@ -265,13 +265,13 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
     
     plt.tight_layout(rect=[0, 0, 1, 0.96])  # 给标题留空间
     output_path1 = os.path.join(output_dir, f"performance.png")
-    fig1.savefig(output_path1, dpi=150, bbox_inches='tight', facecolor='white')
+    fig1.savefig(output_path1, dpi=200, bbox_inches='tight', facecolor='white')
     plt.close(fig1)
     print(f"[✓] Performance chart saved to: {output_path1}")
     
-    # ========== 图2: 公平性指标对比（每个策略的 SAFI Jain Index）==========
-    fig2, ax2 = plt.subplots(1, 1, figsize=(10, 6))
-    fig2.suptitle(f'Fairness Comparison - {scenario_name}', fontsize=14, fontweight='bold')
+    # ========== 图2: 公平性指标对比（仅显示 SAFI Jain Index）==========
+    fig2, ax2 = plt.subplots(1, 1, figsize=(12, 7))
+    fig2.suptitle(f'Fairness Comparison - {scenario_name}', fontsize=16, fontweight='bold')
     
     ax2.spines['top'].set_visible(False)
     ax2.spines['right'].set_visible(False)
@@ -298,7 +298,7 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
     
     plt.tight_layout()
     output_path2 = os.path.join(output_dir, f"fairness.png")
-    fig2.savefig(output_path2, dpi=150, bbox_inches='tight', facecolor='white')
+    fig2.savefig(output_path2, dpi=200, bbox_inches='tight', facecolor='white')
     plt.close(fig2)
     print(f"[✓] Fairness chart saved to: {output_path2}")
     

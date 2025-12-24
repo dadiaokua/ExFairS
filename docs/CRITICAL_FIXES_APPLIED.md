@@ -500,6 +500,67 @@ async def test_concurrency_limit():
 
 ---
 
+## 11. Shell脚本索引变量作用域修复 (2025-12-23)
+
+### 问题描述
+`run.sh` 中的索引变量 `exp_index` 和 `scenario_index` 在循环中可能被意外覆盖，导致等待逻辑错误。
+
+### 修复方案
+使用临时变量 `i` 在查找循环中，避免覆盖主索引变量：
+
+```bash
+# 修复前（会覆盖exp_index）
+exp_index=0
+for exp_index in "${!EXP_ARRAY[@]}"; do
+    [[ "${EXP_ARRAY[$exp_index]}" == "$exp" ]] && break
+done
+
+# 修复后（使用临时变量i）
+exp_index=0
+for i in "${!EXP_ARRAY[@]}"; do
+    if [[ "${EXP_ARRAY[$i]}" == "$exp" ]]; then
+        exp_index=$i
+        break
+    fi
+done
+```
+
+**注意**：不能使用 `local` 关键字，因为这段代码不在函数内部。
+
+### 影响
+- 确保策略和场景之间的等待时间正确执行
+- 避免最后一个策略/场景后不必要的等待
+
+---
+
+## 12. 可视化图表尺寸和清晰度优化 (2025-12-23)
+
+### 问题描述
+1. **图表太小**：默认尺寸在高分辨率显示器上显示较小
+2. **DPI较低**：150 DPI 导致图表清晰度不足
+3. **Goodput显示问题**：虽然数据正确，但视觉效果不佳
+
+### 修复方案
+1. **增大图表尺寸**：
+   - Performance图表：`figsize=(15, 8)` → `figsize=(18, 10)`
+   - Fairness图表：`figsize=(10, 6)` → `figsize=(12, 7)`
+
+2. **提高DPI**：
+   - 所有图表：`dpi=150` → `dpi=200`
+
+3. **增大字体**：
+   - 标题字体：`fontsize=14` → `fontsize=16`
+
+### 代码位置
+- `scripts/visualize_results.py`: 第171行、第273行、第268行、第302行
+
+### 影响
+- 图表更清晰、更易读
+- 在高分辨率显示器上显示效果更好
+- 文件大小略微增加，但仍在合理范围内
+
+---
+
 **修复者**: AI Assistant  
 **审核者**: 待审核  
 **状态**: ✅ 核心问题已修复，建议进行测试验证

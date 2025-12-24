@@ -253,9 +253,12 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
             fi
             
             # 策略之间等待（跳过当前场景的最后一个策略）
-            local exp_index
-            for exp_index in "${!EXP_ARRAY[@]}"; do
-                [[ "${EXP_ARRAY[$exp_index]}" == "$exp" ]] && break
+            exp_index=0
+            for i in "${!EXP_ARRAY[@]}"; do
+                if [[ "${EXP_ARRAY[$i]}" == "$exp" ]]; then
+                    exp_index=$i
+                    break
+                fi
             done
             if [[ $((exp_index + 1)) -lt ${#EXP_ARRAY[@]} ]]; then
                 echo "⏱️  等待 30 秒..." | tee -a "$LOG_FILE"
@@ -283,9 +286,12 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
         echo "" | tee -a "$LOG_FILE"
         
         # 场景之间等待更长时间（跳过最后一个场景）
-        local scenario_index
-        for scenario_index in "${!SCENARIO_ARRAY[@]}"; do
-            [[ "${SCENARIO_ARRAY[$scenario_index]}" == "$scenario" ]] && break
+        scenario_index=0
+        for i in "${!SCENARIO_ARRAY[@]}"; do
+            if [[ "${SCENARIO_ARRAY[$i]}" == "$scenario" ]]; then
+                scenario_index=$i
+                break
+            fi
         done
         if [[ $((scenario_index + 1)) -lt ${#SCENARIO_ARRAY[@]} ]]; then
             echo "⏸️  场景间隔，等待 60 秒..." | tee -a "$LOG_FILE"
