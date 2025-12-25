@@ -229,44 +229,47 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + label_offset, f'{val:.1f}%', 
                 ha='center', va='bottom', fontsize=8)
     
-    # 3. 平均延迟（堆叠图：排队时间 + 推理时间，单位统一为毫秒）
+    # 3. 平均延迟（堆叠图：排队时间 + 推理时间，单位转换为秒）
     ax = axes1[0, 2]
     x = np.arange(len(strategies))
     width = 0.6
     
-    # 获取总延迟、排队时间（全部毫秒）
+    # 获取总延迟、排队时间（毫秒），转换为秒
     total_times_ms = [metrics[s]['avg_latency_ms'] for s in strategies]
     queue_times_ms = [max(0, metrics[s].get('avg_queue_latency_ms', 0)) for s in strategies]
+    inference_times_ms = [max(0, metrics[s].get('avg_inference_latency_ms', 0)) for s in strategies]
     
-    # 推理时间 = 总延迟 - 排队时间（确保非负，毫秒）
-    inference_times_ms = [max(0, t - q) for t, q in zip(total_times_ms, queue_times_ms)]
+    # 转换为秒
+    total_times_s = [t / 1000 for t in total_times_ms]
+    queue_times_s = [q / 1000 for q in queue_times_ms]
+    inference_times_s = [i / 1000 for i in inference_times_ms]
     
-    # 检查是否有有效的排队时间数据
-    has_queue_data = sum(queue_times_ms) > 1  # 大于1ms才认为有数据
+    # 检查是否有有效的排队时间数据（大于0.001秒=1ms才认为有数据）
+    has_queue_data = sum(queue_times_s) > 0.001
     
     if has_queue_data:
-        # 绘制堆叠柱状图
-        bars1 = ax.bar(x, queue_times_ms, width, label='Queue Wait', color='#ff9999', edgecolor='black', linewidth=0.5)
-        bars2 = ax.bar(x, inference_times_ms, width, bottom=queue_times_ms, label='Inference', color=colors, edgecolor='black', linewidth=0.5)
+        # 绘制堆叠柱状图（排队时间在下，推理时间在上）
+        bars1 = ax.bar(x, queue_times_s, width, label='Queue Wait', color='#ff9999', edgecolor='black', linewidth=0.5)
+        bars2 = ax.bar(x, inference_times_s, width, bottom=queue_times_s, label='Inference', color='#99ccff', edgecolor='black', linewidth=0.5)
         ax.legend(loc='upper right', fontsize=8)
         ax.set_title('(c) Latency Breakdown ↓', fontsize=10)
     else:
         # 没有排队数据，显示简单柱状图
-        bars = ax.bar(x, total_times_ms, width, color=colors, edgecolor='black', linewidth=0.5)
+        bars = ax.bar(x, total_times_s, width, color=colors, edgecolor='black', linewidth=0.5)
         ax.set_title('(c) Average Latency ↓', fontsize=10)
     
-    ax.set_ylabel('Latency (ms)', fontsize=10)
+    ax.set_ylabel('Latency (s)', fontsize=10)
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=9)
     
-    # 自动调整 y 轴范围（毫秒）
-    max_val_ms = max(total_times_ms) if total_times_ms else 100
-    ax.set_ylim(0, max_val_ms * 1.3)
+    # 自动调整 y 轴范围（秒）
+    max_val_s = max(total_times_s) if total_times_s else 1
+    ax.set_ylim(0, max_val_s * 1.3)
     
-    # 在柱子上方显示总延迟值（毫秒）
-    for i, total_ms in enumerate(total_times_ms):
-        label = f'{total_ms:.0f}ms'
-        y_pos = total_ms + max_val_ms * 0.03
+    # 在柱子上方显示总延迟值（秒）
+    for i, total_s in enumerate(total_times_s):
+        label = f'{total_s:.2f}s'
+        y_pos = total_s + max_val_s * 0.03
         ax.text(i, y_pos, label, ha='center', va='bottom', fontsize=8)
     
     # 4. Jain Index (SAFI)
@@ -284,26 +287,30 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, f'{val:.4f}', 
                 ha='center', va='bottom', fontsize=8)
     
-    # 5. P95/P99 延迟（毫秒）
+    # 5. P95/P99 延迟（转换为秒）
     ax = axes1[1, 1]
     x = range(len(strategies))
     width = 0.35
     p95_values_ms = [metrics[s]['p95_latency_ms'] for s in strategies]
     p99_values_ms = [metrics[s]['p99_latency_ms'] for s in strategies]
     
-    ax.bar([xi - width/2 for xi in x], p95_values_ms, width, label='P95', 
+    # 转换为秒
+    p95_values_s = [p / 1000 for p in p95_values_ms]
+    p99_values_s = [p / 1000 for p in p99_values_ms]
+    
+    ax.bar([xi - width/2 for xi in x], p95_values_s, width, label='P95', 
            color='#7fc97f', edgecolor='black', linewidth=0.5)
-    ax.bar([xi + width/2 for xi in x], p99_values_ms, width, label='P99', 
+    ax.bar([xi + width/2 for xi in x], p99_values_s, width, label='P99', 
            color='#beaed4', edgecolor='black', linewidth=0.5)
-    ax.set_ylabel('Latency (ms)', fontsize=10)
+    ax.set_ylabel('Latency (s)', fontsize=10)
     ax.set_title('(e) P95/P99 Latency ↓', fontsize=10)
     ax.set_xticks(x)
     ax.set_xticklabels(labels)
     ax.legend(fontsize=8)
-    # 自动调整 y 轴（毫秒）
-    all_latencies_ms = p95_values_ms + p99_values_ms
-    max_lat_ms = max(all_latencies_ms) if all_latencies_ms else 100
-    ax.set_ylim(0, max_lat_ms * 1.3)
+    # 自动调整 y 轴（秒）
+    all_latencies_s = p95_values_s + p99_values_s
+    max_lat_s = max(all_latencies_s) if all_latencies_s else 1
+    ax.set_ylim(0, max_lat_s * 1.3)
     
     # 6. Goodput (成功完成的请求数)
     ax = axes1[1, 2]
@@ -324,38 +331,7 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
     plt.close(fig1)
     print(f"[✓] Performance chart saved to: {output_path1}")
     
-    # ========== 图2: 公平性指标对比（仅显示 SAFI Jain Index）==========
-    fig2, ax2 = plt.subplots(1, 1, figsize=(12, 7))
-    fig2.suptitle(f'Fairness Comparison - {scenario_name}', fontsize=16, fontweight='bold')
-    
-    ax2.spines['top'].set_visible(False)
-    ax2.spines['right'].set_visible(False)
-    
-    # 每个策略的 Jain Index (SAFI)
-    safi_values = [metrics[s]['jain_index'] for s in strategies]
-    
-    bars = ax2.bar(labels, safi_values, color=colors, edgecolor='black', linewidth=0.5, width=0.6)
-    
-    ax2.set_ylabel('Jain Index (Service Fairness)', fontsize=12)
-    ax2.set_xlabel('Strategy', fontsize=12)
-    ax2.set_title('User SAFI Fairness (Higher is Better)', fontsize=11)
-    
-    # 设置 y 轴范围：从最小值稍下到 1.0
-    min_val = min(safi_values) if safi_values else 0
-    ax2.set_ylim(max(0, min_val - 0.1), 1.05)
-    
-    # 在柱子上显示数值
-    for bar, val in zip(bars, safi_values):
-        ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02, 
-                f'{val:.4f}', ha='center', va='bottom', fontsize=10, fontweight='bold')
-    
-    ax2.grid(axis='y', alpha=0.3, linestyle='--')
-    
-    plt.tight_layout()
-    output_path2 = os.path.join(output_dir, f"fairness.png")
-    fig2.savefig(output_path2, dpi=200, bbox_inches='tight', facecolor='white')
-    plt.close(fig2)
-    print(f"[✓] Fairness chart saved to: {output_path2}")
+    # 注意：fairness 图已经包含在 performance 图的子图(d)中，不再单独生成
     
     return output_path1
 

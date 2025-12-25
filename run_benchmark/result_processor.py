@@ -129,22 +129,24 @@ def save_results_new_format(benchmark_results, fairness_results, args, start_tim
             user_stats['timeouts'] += round_data.get('total_requests', 0) - round_data.get('successful_requests', 0)
             
             # 收集延迟数据（全部统一为毫秒）
-            # latency 单位是毫秒，是推理时间（不含排队）
-            # queue_wait_time 单位是秒，需要转换为毫秒
+            # MathUtil.py 已修复：所有时间单位都是毫秒
+            # latency.average: 总延迟（排队+推理），单位毫秒
+            # queue_wait_time.average: 队列等待时间，单位毫秒
+            # inference_time.average: 推理时间（不含排队），单位毫秒
             latency_data = round_data.get('latency', {})
             queue_wait_data = round_data.get('queue_wait_time', {})
+            inference_data = round_data.get('inference_time', {})
             
-            inference_time_ms = latency_data.get('average', 0) if isinstance(latency_data, dict) else 0
-            queue_time_sec = queue_wait_data.get('average', 0) if isinstance(queue_wait_data, dict) else 0
-            queue_time_ms = queue_time_sec * 1000  # 转换为毫秒
+            # 直接使用 MathUtil 返回的值，都是毫秒
+            total_latency_ms = latency_data.get('average', 0) if isinstance(latency_data, dict) else 0
+            queue_time_ms = queue_wait_data.get('average', 0) if isinstance(queue_wait_data, dict) else 0
+            inference_time_ms = inference_data.get('average', 0) if isinstance(inference_data, dict) else 0
             
-            if inference_time_ms > 0:
-                # 总延迟 = 排队时间 + 推理时间（全部毫秒）
-                total_latency_ms = queue_time_ms + inference_time_ms
+            if total_latency_ms > 0:
                 user_stats['latencies'].append(total_latency_ms)
             
             if queue_time_ms > 0:
-                user_stats['queue_latencies'].append(queue_time_ms)  # 毫秒
+                user_stats['queue_latencies'].append(queue_time_ms)
         
         # 计算平均值（全部毫秒）
         if user_stats['count'] > 0:

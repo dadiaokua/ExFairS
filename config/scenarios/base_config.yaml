@@ -21,7 +21,7 @@ experiment:
 
   # round_time: 每轮实验的持续时间（秒）
   # - 每轮结束后会等待所有请求完成
-  round_time: 150
+  round_time: 100
 
   # concurrency: 并发级别（保留参数，当前未使用）
   concurrency: 1
@@ -33,7 +33,7 @@ experiment:
   # request_timeout: 单个请求的超时时间（秒）
   # - 超时后请求会被标记为失败
   # - 注意：应该大于SLO阈值，否则请求可能在完成前就被超时
-  request_timeout: 30
+  request_timeout: 25
 
   # sleep_time: 轮次之间的休息时间（秒）
   # - 用于等待系统稳定、避免资源争用

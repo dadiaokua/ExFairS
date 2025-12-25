@@ -375,20 +375,24 @@ def calculate_metrics(concurrency, request_timeout, client_id, results, start_ti
         
         # 解析结果，支持 6 元素和 7 元素格式
         if len(result) >= 6:
-            tokens, elapsed_time, tps, ttft, input_token, slo = result[:6]
-            # queue_wait_time 是秒，需要转换为毫秒（与 elapsed_time 单位一致）
+            tokens, elapsed_time_sec, tps, ttft, input_token, slo = result[:6]
+            # elapsed_time_sec 是秒（来自 time.time()），转换为毫秒
+            # queue_wait_time_sec 也是秒，也转换为毫秒
             queue_wait_time_sec = result[6] if len(result) >= 7 else 0
-            queue_wait_time_ms = queue_wait_time_sec * 1000  # 转换为毫秒
+            
+            # 统一转换为毫秒
+            elapsed_time_ms = elapsed_time_sec * 1000 if elapsed_time_sec else 0
+            queue_wait_time_ms = queue_wait_time_sec * 1000 if queue_wait_time_sec else 0
             
             if tokens is not None:
                 total_tokens += tokens
             if input_token is not None:
                 total_input_tokens += input_token
-            if elapsed_time is not None:
-                latencies.append(elapsed_time)
+            if elapsed_time_ms > 0:
+                latencies.append(elapsed_time_ms)  # 存储毫秒
                 # 计算推理时间 = 总时间(ms) - 队列等待时间(ms)
-                inference_time = max(0, elapsed_time - queue_wait_time_ms) if queue_wait_time_ms else elapsed_time
-                inference_times.append(inference_time)
+                inference_time_ms = max(0, elapsed_time_ms - queue_wait_time_ms)
+                inference_times.append(inference_time_ms)
             if tps is not None:
                 tokens_per_second_list.append(tps)
             if ttft is not None:
@@ -400,7 +404,7 @@ def calculate_metrics(concurrency, request_timeout, client_id, results, start_ti
 
     # 添加token调试信息
     print(f"[Debug] {client_id}: total_output_tokens={total_tokens}, total_input_tokens={total_input_tokens}")
-    print(f"[Debug] {client_id}: queue_wait_times count={len(queue_wait_times)}, avg={sum(queue_wait_times)/len(queue_wait_times) if queue_wait_times else 0:.3f}s")
+    print(f"[Debug] {client_id}: queue_wait_times count={len(queue_wait_times)}, avg={sum(queue_wait_times)/len(queue_wait_times) if queue_wait_times else 0:.1f}ms")
 
     avg_latency_div_standard_latency = sum(latencies) / len(latencies) / (latency_slo if latency_slo > 0 else 1) if latencies else 0
 
@@ -441,6 +445,7 @@ def calculate_metrics(concurrency, request_timeout, client_id, results, start_ti
         "requests_per_second": requests_per_second,
         "total_output_tokens": total_tokens,
         "total_input_tokens": total_input_tokens,
+        # latency: 总延迟（排队+推理），单位：毫秒
         "latency": {
             "average": avg_latency,
             "p50": latency_percentiles[0],
@@ -459,14 +464,14 @@ def calculate_metrics(concurrency, request_timeout, client_id, results, start_ti
             "p95": ttft_percentiles[1],
             "p99": ttft_percentiles[2]
         },
-        # 新增：队列等待时间统计
+        # queue_wait_time: 队列等待时间，单位：毫秒
         "queue_wait_time": {
             "average": avg_queue_wait_time,
             "p50": queue_wait_percentiles[0],
             "p95": queue_wait_percentiles[1],
             "p99": queue_wait_percentiles[2]
         },
-        # 新增：推理时间统计（不含队列等待）
+        # inference_time: 推理时间（不含队列等待），单位：毫秒
         "inference_time": {
             "average": avg_inference_time,
             "p50": inference_percentiles[0],

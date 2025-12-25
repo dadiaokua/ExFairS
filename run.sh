@@ -40,12 +40,11 @@ show_help() {
   - ExFairS, Justitia, SLOGreedy, VTC, FCFS  (基础模式)
 
 可用场景:
-  - 1 或 scenario_I                 均衡负载 (2S+2L, QPM=50)
-  - 2 或 scenario_II                不均衡负载 (2S+2L, QPM=10-90)
+  - 1 或 scenario_I                 均衡负载 (2S+2L, QPM=32)
+  - 2 或 scenario_II                不均衡负载 (2S+2L, QPM=6-58)
   - 3 或 scenario_III               异构4客户端 (Mix, QPM=20-40)
-  - 4 或 scenario_IV                异构8客户端 (Mix, QPM=10-30)
-  - 5 或 scenario_V                 高并发20客户端 (Mix, QPM=5-15)
-  - 6 或 scenario_VI                高并发50客户端 (Mix, QPM=4)
+  - 4 或 scenario_IV                异构8客户端 (Mix, QPM=8-24)
+  - 5 或 scenario_V                 异构10客户端 (Mix, QPM=8-16, SLO=12-18s)
 
 示例:
   # 默认运行（所有场景 + 所有队列策略）
@@ -64,12 +63,12 @@ show_help() {
   $0 -e QUEUE_ExFairS -s scenario_I,scenario_II
 
 默认值:
-  场景: scenario_I,scenario_II,scenario_III,scenario_IV,scenario_V,scenario_VI
+  场景: scenario_I,scenario_II,scenario_III,scenario_IV,scenario_V
   策略: QUEUE_ExFairS,QUEUE_Justitia,QUEUE_SLOGreedy,QUEUE_VTC,QUEUE_FCFS
   
   💡 不加任何参数运行 $0 将按场景分组依次运行：
-     场景1 → 所有策略 → 可视化 → 等待60秒
-     场景2 → 所有策略 → 可视化 → 等待60秒
+     场景1 → 所有策略 → 可视化 → 等待30秒
+     场景2 → 所有策略 → 可视化 → 等待30秒
      ...
 
 查询选项:
@@ -89,7 +88,6 @@ map_scenario() {
         3) echo "scenario_III" ;;
         4) echo "scenario_IV" ;;
         5) echo "scenario_V" ;;
-        6) echo "scenario_VI" ;;
         scenario_*) echo "$input" ;;  # 已经是完整名称
         *) echo "$input" ;;            # 其他情况原样返回
     esac
@@ -110,12 +108,11 @@ map_scenarios() {
 
 list_scenarios() {
     echo "可用场景:"
-    echo "  1 - scenario_I:   均衡负载 (2S+2L, QPM=50)"
-    echo "  2 - scenario_II:  不均衡负载 (2S+2L, QPM=10-90)"
+    echo "  1 - scenario_I:   均衡负载 (2S+2L, QPM=32)"
+    echo "  2 - scenario_II:  不均衡负载 (2S+2L, QPM=6-58)"
     echo "  3 - scenario_III: 异构4客户端 (Mix, QPM=20-40)"
-    echo "  4 - scenario_IV:  异构8客户端 (Mix, QPM=10-30)"
-    echo "  5 - scenario_V:   高并发20客户端 (Mix, QPM=5-15)"
-    echo "  6 - scenario_VI:  高并发50客户端 (Mix, QPM=4)"
+    echo "  4 - scenario_IV:  异构8客户端 (Mix, QPM=8-24)"
+    echo "  5 - scenario_V:   异构10客户端 (Mix, QPM=8-16, SLO=12-18s)"
 }
 
 list_strategies() {
@@ -201,7 +198,7 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
     echo "🚀 批量运行模式"
     
     # 默认值
-    [[ -z "$SCENARIOS" ]] && SCENARIOS="scenario_I,scenario_II,scenario_III,scenario_IV,scenario_V,scenario_VI"
+    [[ -z "$SCENARIOS" ]] && SCENARIOS="scenario_I,scenario_II,scenario_III,scenario_IV,scenario_V"
     [[ -z "$EXPERIMENTS" ]] && EXPERIMENTS="QUEUE_ExFairS,QUEUE_Justitia,QUEUE_SLOGreedy,QUEUE_VTC,QUEUE_FCFS"
     
     # 转换为数组
