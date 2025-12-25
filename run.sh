@@ -225,11 +225,79 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
     success_counter=0
     failed_runs=()
     
+    # 时间统计
+    BATCH_START_TIME=$(date +%s)
+    
+    # 格式化时间函数（需要先定义，后面会用到）
+    format_duration() {
+        local seconds=$1
+        local hours=$((seconds / 3600))
+        local minutes=$(((seconds % 3600) / 60))
+        local secs=$((seconds % 60))
+        if [[ $hours -gt 0 ]]; then
+            printf "%dh %dm %ds" $hours $minutes $secs
+        elif [[ $minutes -gt 0 ]]; then
+            printf "%dm %ds" $minutes $secs
+        else
+            printf "%ds" $secs
+        fi
+    }
+    
+    # 计算偏差
+    calc_deviation() {
+        local actual=$1
+        local expected=$2
+        if [[ $expected -gt 0 ]]; then
+            local diff=$((actual - expected))
+            local pct=$((diff * 100 / expected))
+            if [[ $diff -ge 0 ]]; then
+                printf "+%ds (+%d%%)" $diff $pct
+            else
+                printf "%ds (%d%%)" $diff $pct
+            fi
+        else
+            printf "N/A"
+        fi
+    }
+    
+    # 从配置文件读取预期时间参数
+    BASE_CONFIG="$CONFIG_DIR/scenarios/base_config.yaml"
+    if [[ -f "$BASE_CONFIG" ]]; then
+        # 读取 round_num, round_time, sleep_time
+        ROUND_NUM=$(grep -E "^\s*round_num:" "$BASE_CONFIG" | head -1 | awk '{print $2}')
+        ROUND_TIME=$(grep -E "^\s*round_time:" "$BASE_CONFIG" | head -1 | awk '{print $2}')
+        SLEEP_TIME=$(grep -E "^\s*sleep_time:" "$BASE_CONFIG" | head -1 | awk '{print $2}')
+        
+        # 默认值
+        ROUND_NUM=${ROUND_NUM:-10}
+        ROUND_TIME=${ROUND_TIME:-150}
+        SLEEP_TIME=${SLEEP_TIME:-5}
+        
+        # 计算单次实验预期耗时 = round_num * (round_time + sleep_time) + 额外开销(约30秒)
+        EXPECTED_EXP_TIME=$((ROUND_NUM * (ROUND_TIME + SLEEP_TIME) + 30))
+        EXPECTED_SCENARIO_TIME=$((EXPECTED_EXP_TIME * ${#EXP_ARRAY[@]} + 30 * (${#EXP_ARRAY[@]} - 1)))  # 策略间等待30秒
+        EXPECTED_TOTAL_TIME=$((EXPECTED_SCENARIO_TIME * ${#SCENARIO_ARRAY[@]} + 30 * (${#SCENARIO_ARRAY[@]} - 1)))  # 场景间等待30秒
+        
+        echo "📋 配置信息:" | tee -a "$LOG_FILE"
+        echo "   轮数: $ROUND_NUM, 每轮: ${ROUND_TIME}s, 休息: ${SLEEP_TIME}s" | tee -a "$LOG_FILE"
+        echo "   预期单次实验: $(format_duration $EXPECTED_EXP_TIME)" | tee -a "$LOG_FILE"
+        echo "   预期单场景: $(format_duration $EXPECTED_SCENARIO_TIME)" | tee -a "$LOG_FILE"
+        echo "   预期总耗时: $(format_duration $EXPECTED_TOTAL_TIME)" | tee -a "$LOG_FILE"
+        echo "" | tee -a "$LOG_FILE"
+    else
+        EXPECTED_EXP_TIME=0
+        EXPECTED_SCENARIO_TIME=0
+        EXPECTED_TOTAL_TIME=0
+    fi
+    
     # 批量运行 - 按场景分组，每个场景跑完所有策略后再进行下一个场景
     for scenario in "${SCENARIO_ARRAY[@]}"; do
+        SCENARIO_START_TIME=$(date +%s)
+        
         echo "" | tee -a "$LOG_FILE"
         echo "╔════════════════════════════════════════╗" | tee -a "$LOG_FILE"
         echo "║  开始场景: $scenario" | tee -a "$LOG_FILE"
+        echo "║  开始时间: $(date '+%Y-%m-%d %H:%M:%S')" | tee -a "$LOG_FILE"
         echo "╚════════════════════════════════════════╝" | tee -a "$LOG_FILE"
         echo "" | tee -a "$LOG_FILE"
         
@@ -237,8 +305,11 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
         
         for exp in "${EXP_ARRAY[@]}"; do
             run_counter=$((run_counter + 1))
+            EXP_START_TIME=$(date +%s)
+            
             echo "========================================" | tee -a "$LOG_FILE"
             echo "🚀 运行 $run_counter/$total_runs: $scenario + $exp" | tee -a "$LOG_FILE"
+            echo "⏰ 开始: $(date '+%H:%M:%S')" | tee -a "$LOG_FILE"
             echo "========================================" | tee -a "$LOG_FILE"
             
             # 调用单场景运行逻辑，传递RUN_TIMESTAMP确保所有实验共享同一个run_id
@@ -246,9 +317,21 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
             if RUN_TIMESTAMP="$RUN_TIMESTAMP" bash "$SCRIPT_DIR/run.sh" -e "$exp" --scenario "$scenario" >> "$LOG_FILE" 2>&1; then
                 success_counter=$((success_counter + 1))
                 scenario_success=$((scenario_success + 1))
-                echo "✅ 完成 $run_counter/$total_runs" | tee -a "$LOG_FILE"
+                EXP_END_TIME=$(date +%s)
+                EXP_DURATION=$((EXP_END_TIME - EXP_START_TIME))
+                if [[ $EXPECTED_EXP_TIME -gt 0 ]]; then
+                    echo "✅ 完成 $run_counter/$total_runs | 耗时: $(format_duration $EXP_DURATION) | 预期: $(format_duration $EXPECTED_EXP_TIME) | 偏差: $(calc_deviation $EXP_DURATION $EXPECTED_EXP_TIME)" | tee -a "$LOG_FILE"
+                else
+                    echo "✅ 完成 $run_counter/$total_runs (耗时: $(format_duration $EXP_DURATION))" | tee -a "$LOG_FILE"
+                fi
             else
-                echo "❌ 失败 $run_counter/$total_runs" | tee -a "$LOG_FILE"
+                EXP_END_TIME=$(date +%s)
+                EXP_DURATION=$((EXP_END_TIME - EXP_START_TIME))
+                if [[ $EXPECTED_EXP_TIME -gt 0 ]]; then
+                    echo "❌ 失败 $run_counter/$total_runs | 耗时: $(format_duration $EXP_DURATION) | 预期: $(format_duration $EXPECTED_EXP_TIME) | 偏差: $(calc_deviation $EXP_DURATION $EXPECTED_EXP_TIME)" | tee -a "$LOG_FILE"
+                else
+                    echo "❌ 失败 $run_counter/$total_runs (耗时: $(format_duration $EXP_DURATION))" | tee -a "$LOG_FILE"
+                fi
                 failed_runs+=("$scenario + $exp")
             fi
             
@@ -281,8 +364,20 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
             fi
         fi
         
+        SCENARIO_END_TIME=$(date +%s)
+        SCENARIO_DURATION=$((SCENARIO_END_TIME - SCENARIO_START_TIME))
+        ELAPSED_TOTAL=$((SCENARIO_END_TIME - BATCH_START_TIME))
+        
         echo "" | tee -a "$LOG_FILE"
-        echo "✨ 场景 $scenario 全部完成 ($scenario_success/${#EXP_ARRAY[@]} 成功)" | tee -a "$LOG_FILE"
+        echo "╔════════════════════════════════════════════════════════╗" | tee -a "$LOG_FILE"
+        echo "║  ✨ 场景 $scenario 完成" | tee -a "$LOG_FILE"
+        echo "║  成功: $scenario_success/${#EXP_ARRAY[@]}" | tee -a "$LOG_FILE"
+        echo "║  场景耗时: $(format_duration $SCENARIO_DURATION) (预期: $(format_duration $EXPECTED_SCENARIO_TIME))" | tee -a "$LOG_FILE"
+        if [[ $EXPECTED_SCENARIO_TIME -gt 0 ]]; then
+            echo "║  偏差: $(calc_deviation $SCENARIO_DURATION $EXPECTED_SCENARIO_TIME)" | tee -a "$LOG_FILE"
+        fi
+        echo "║  累计耗时: $(format_duration $ELAPSED_TOTAL)" | tee -a "$LOG_FILE"
+        echo "╚════════════════════════════════════════════════════════╝" | tee -a "$LOG_FILE"
         echo "" | tee -a "$LOG_FILE"
         
         # 场景之间等待更长时间（跳过最后一个场景）
@@ -300,14 +395,28 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
     done
     
     # 总结
+    BATCH_END_TIME=$(date +%s)
+    TOTAL_DURATION=$((BATCH_END_TIME - BATCH_START_TIME))
+    
     echo "" | tee -a "$LOG_FILE"
-    echo "========================================" | tee -a "$LOG_FILE"
-    echo "🎉 批量运行完成" | tee -a "$LOG_FILE"
-    echo "总运行: $total_runs" | tee -a "$LOG_FILE"
-    echo "成功: $success_counter" | tee -a "$LOG_FILE"
-    echo "失败: $((total_runs - success_counter))" | tee -a "$LOG_FILE"
-    echo "结果: $RUN_RESULTS_DIR" | tee -a "$LOG_FILE"
-    echo "========================================" | tee -a "$LOG_FILE"
+    echo "╔════════════════════════════════════════════════════════════════╗" | tee -a "$LOG_FILE"
+    echo "║                       🎉 批量运行完成                           ║" | tee -a "$LOG_FILE"
+    echo "╠════════════════════════════════════════════════════════════════╣" | tee -a "$LOG_FILE"
+    echo "║  总运行数: $total_runs" | tee -a "$LOG_FILE"
+    echo "║  成功: $success_counter" | tee -a "$LOG_FILE"
+    echo "║  失败: $((total_runs - success_counter))" | tee -a "$LOG_FILE"
+    echo "╠════════════════════════════════════════════════════════════════╣" | tee -a "$LOG_FILE"
+    echo "║  实际总耗时: $(format_duration $TOTAL_DURATION)" | tee -a "$LOG_FILE"
+    echo "║  预期总耗时: $(format_duration $EXPECTED_TOTAL_TIME)" | tee -a "$LOG_FILE"
+    if [[ $EXPECTED_TOTAL_TIME -gt 0 ]]; then
+        echo "║  总偏差: $(calc_deviation $TOTAL_DURATION $EXPECTED_TOTAL_TIME)" | tee -a "$LOG_FILE"
+    fi
+    echo "║  平均每次: $(format_duration $((TOTAL_DURATION / total_runs))) (预期: $(format_duration $EXPECTED_EXP_TIME))" | tee -a "$LOG_FILE"
+    echo "╠════════════════════════════════════════════════════════════════╣" | tee -a "$LOG_FILE"
+    echo "║  开始时间: $(date -d @$BATCH_START_TIME '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date -r $BATCH_START_TIME '+%Y-%m-%d %H:%M:%S')" | tee -a "$LOG_FILE"
+    echo "║  结束时间: $(date '+%Y-%m-%d %H:%M:%S')" | tee -a "$LOG_FILE"
+    echo "║  结果目录: $RUN_RESULTS_DIR" | tee -a "$LOG_FILE"
+    echo "╚════════════════════════════════════════════════════════════════╝" | tee -a "$LOG_FILE"
     
     # 保存元数据
     cat > "$RUN_RESULTS_DIR/metadata.json" << EOF
@@ -317,7 +426,12 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
   "experiments": [$(printf '"%s",' "${EXP_ARRAY[@]}" | sed 's/,$//')],
   "total_runs": $total_runs,
   "successful_runs": $success_counter,
-  "failed_runs": $((total_runs - success_counter))
+  "failed_runs": $((total_runs - success_counter)),
+  "start_time": "$(date -d @$BATCH_START_TIME '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -r $BATCH_START_TIME '+%Y-%m-%dT%H:%M:%S')",
+  "end_time": "$(date '+%Y-%m-%dT%H:%M:%S')",
+  "total_duration_seconds": $TOTAL_DURATION,
+  "total_duration_formatted": "$(format_duration $TOTAL_DURATION)",
+  "avg_duration_per_run_seconds": $((TOTAL_DURATION / total_runs))
 }
 EOF
     
