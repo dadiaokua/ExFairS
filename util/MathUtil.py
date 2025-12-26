@@ -195,8 +195,7 @@ async def fairness_result(clients, exp_type, logger):
     for client in clients:
         slo_violation_ratio = client.slo_violation_count / client.results[-1]['total_requests']
         service_ratio = client.service / max_service  # 现在max_service保证不为0
-        # 使用 (1 - service_ratio)：资源消耗越高，该值越低
-        client.fairness_ratio = (1 - service_ratio) * (1 - alpha) + alpha * slo_violation_ratio
+        client.fairness_ratio = service_ratio * (1 - alpha) + alpha * slo_violation_ratio
 
         if "QUE" in exp_type:
             # 添加保护性检查，防止失败实验导致KeyError
