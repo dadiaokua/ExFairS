@@ -114,8 +114,8 @@ def calculate_service_value(total_input_tokens, total_output_tokens):
 
 
 async def fairness_result(clients, exp_type, logger):
-    # Calculate service values and max service in one pass
-    max_service = 0
+    # Calculate service values and total service in one pass
+    total_service = 0
     service = []
     raw_throughputs = []
     raw_latencies = []
@@ -153,8 +153,8 @@ async def fairness_result(clients, exp_type, logger):
                      f"output_tokens={latest_result['total_output_tokens']}, "
                      f"service_value={service_value}")
 
-        # Update max service
-        max_service = max(max_service, service_value)
+        # Update total service (累加所有用户的service)
+        total_service += service_value
 
         # Store service info
         service.append({
@@ -170,15 +170,15 @@ async def fairness_result(clients, exp_type, logger):
         latency_min, latency_max = min(raw_latencies), max(raw_latencies)
         cost_min, cost_max = min(raw_costs), max(raw_costs)
 
-    logger.debug(f"[Fairness Debug] Max service calculated: {max_service}")
+    logger.debug(f"[Fairness Debug] Total service calculated: {total_service}")
 
-    # 添加除零保护：如果max_service为0，说明所有客户端都没有处理任何token
-    if max_service == 0:
+    # 添加除零保护：如果total_service为0，说明所有客户端都没有处理任何token
+    if total_service == 0:
         logger.warning(
-            f"[Fairness] Warning: max_service is 0, all clients have zero tokens. Setting equal fairness ratios.")
+            f"[Fairness] Warning: total_service is 0, all clients have zero tokens. Setting equal fairness ratios.")
         # 如果没有服务值，给所有客户端相等的公平性比例
         for client in clients:
-            client.fairness_ratio = 1  # 平均分配
+            client.fairness_ratio = 1 / len(clients)  # 平均分配
 
         # 计算Jain's公平性指数 - 返回字典格式以保持一致性
         # 当所有客户端都没有token时，所有指标都是完全公平的（1.0）
@@ -191,10 +191,11 @@ async def fairness_result(clients, exp_type, logger):
         return jains_indices, service
 
     # Calculate fairness ratios in one pass
+    # service_ratio = service / total_service (用户资源占比)
     alpha = GLOBAL_CONFIG['alpha']
     for client in clients:
         slo_violation_ratio = client.slo_violation_count / client.results[-1]['total_requests']
-        service_ratio = client.service / max_service  # 现在max_service保证不为0
+        service_ratio = client.service / total_service  # 使用总和而非最大值
         client.fairness_ratio = service_ratio * (1 - alpha) + alpha * slo_violation_ratio
 
         if "QUE" in exp_type:
@@ -233,18 +234,8 @@ async def fairness_result(clients, exp_type, logger):
 
     # Calculate multiple Jain's fairness indices
     
-    # 1. SAFI - Service-Aware Fairness Index (based on fairness_ratio)
-    safi_jains_index = calculate_Jains_index(clients, exp_type, metric_name="SAFI_fairness_ratio")
-    
-    # 2. Token-based Jain's Index (input + 2*output)
-    token_values = []
-    for client in clients:
-        latest_result = client.results[-1]
-        token_value = latest_result["total_input_tokens"] + 2 * latest_result["total_output_tokens"]
-        token_values.append(token_value)
-    token_jains_index = calculate_Jains_index(clients, exp_type, metric_name="token_count", values=token_values)
-
-    # 3. SLO Violation Ratio-based Jain's Index
+    # 1. SLO Violation Ratio-based Jain's Index (主要公平性指标)
+    # 各用户的 SLO 违约率越接近，说明调度越公平
     slo_violation_ratios = []
     for client in clients:
         total_requests = client.results[-1]['total_requests']
@@ -255,13 +246,25 @@ async def fairness_result(clients, exp_type, logger):
         slo_violation_ratios.append(slo_ratio)
     slo_jains_index = calculate_Jains_index(clients, exp_type, metric_name="slo_violation_ratio", values=slo_violation_ratios)
     
-    logger.info(f"[Fairness] JAIN Indices - SAFI: {safi_jains_index:.4f}, Token: {token_jains_index:.4f}, SLO Violation: {slo_jains_index:.4f}")
+    # 2. Token-based Jain's Index (input + 2*output)
+    token_values = []
+    for client in clients:
+        latest_result = client.results[-1]
+        token_value = latest_result["total_input_tokens"] + 2 * latest_result["total_output_tokens"]
+        token_values.append(token_value)
+    token_jains_index = calculate_Jains_index(clients, exp_type, metric_name="token_count", values=token_values)
+
+    # 3. SAFI - Service-Aware Fairness Index (辅助指标，基于 fairness_ratio)
+    safi_jains_index = calculate_Jains_index(clients, exp_type, metric_name="SAFI_fairness_ratio")
+    
+    logger.info(f"[Fairness] JAIN Indices - SLO_Violation: {slo_jains_index:.4f}, Token: {token_jains_index:.4f}, SAFI: {safi_jains_index:.4f}")
     
     # Return all three indices as a dictionary along with service info
+    # 注意：safi 字段现在存储的是 SLO 违约率的 Jain Index（主要指标）
     jains_indices = {
-        "safi": safi_jains_index,
-        "token": token_jains_index,
-        "slo_violation": slo_jains_index
+        "safi": slo_jains_index,           # 主要指标：SLO 违约率公平性
+        "token": token_jains_index,        # Token 消耗公平性
+        "slo_violation": safi_jains_index  # 原 SAFI 指标（辅助）
     }
     
     return jains_indices, service
