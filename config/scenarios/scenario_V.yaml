@@ -6,10 +6,11 @@
 # SLO设置: 13s-21s渐变，围绕实际延迟14-16s
 #   - 低QPM客户端: 更紧的SLO (期望快速)
 #   - 高QPM客户端: 更松的SLO (容忍延迟)
+# 负载: 150% (原130 -> 195)
 # =============================================================================
 
 name: "Scenario_V_Gradual_Spectrum"
-description: "10 clients with gradual QPM and SLO spectrum"
+description: "10 clients with gradual QPM and SLO spectrum (150% load)"
 
 clients:
   short:
@@ -26,10 +27,10 @@ clients:
   
   mix:
     count: 10
-    # QPM 渐变: 8 -> 18
-    qpm: [8, 10, 10, 12, 12, 14, 14, 16, 16, 18]
+    # QPM 渐变: 12 -> 27 (原 8-18 * 1.5)
+    qpm: [12, 15, 15, 18, 18, 21, 21, 24, 24, 27]
     qpm_ratio: 1
     # SLO 渐变: 低QPM期望快，高QPM容忍慢
     slo: [13, 14, 15, 15, 16, 17, 18, 19, 20, 21]
 
-# 总QPM: 130
+# 总QPM: 195 (原130 * 1.5)

@@ -6,21 +6,22 @@
 # SLO设置: 全部设置在实际延迟附近或略低
 #   - 短请求: 17s/18s (紧张，预期30-60%违约)
 #   - 长请求: 14s/15s (紧张，预期20-40%违约)
+# 负载: 150% (原128 -> 192)
 # =============================================================================
 
 name: "Scenario_II_High_Contention"
-description: "High contention with tight SLO for all clients"
+description: "High contention with tight SLO for all clients (150% load)"
 
 clients:
   short:
     count: 2
-    qpm: [32, 32]
+    qpm: [48, 48]           # 原 32 * 1.5
     qpm_ratio: 1
     slo: [17, 18]           # 紧张SLO
   
   long:
     count: 2
-    qpm: [32, 32]
+    qpm: [48, 48]           # 原 32 * 1.5
     qpm_ratio: 1
     slo: [14, 15]           # 紧张SLO
   
@@ -30,4 +31,4 @@ clients:
     qpm_ratio: 1
     slo: []
 
-# 总QPM: 128
+# 总QPM: 192 (原128 * 1.5)

@@ -377,15 +377,43 @@ def calculate_metrics(concurrency, request_timeout, client_id, results, start_ti
             continue
         
         # 解析结果，支持 6 元素和 7 元素格式
+        # 结果格式: (tokens, elapsed_time_sec, tps, ttft_ms, input_token, slo, our_queue_wait_sec)
         if len(result) >= 6:
-            tokens, elapsed_time_sec, tps, ttft, input_token, slo = result[:6]
-            # elapsed_time_sec 是秒（来自 time.time()），转换为毫秒
-            # queue_wait_time_sec 也是秒，也转换为毫秒
-            queue_wait_time_sec = result[6] if len(result) >= 7 else 0
+            tokens, elapsed_time_sec, tps, ttft_ms, input_token, slo = result[:6]
+            # our_queue_wait_sec: 我们队列的等待时间（秒）= T1 - T0
+            # 注意：这个值在队列模式下才有，非队列模式下为0
+            our_queue_wait_sec = result[6] if len(result) >= 7 else 0
             
             # 统一转换为毫秒
             elapsed_time_ms = elapsed_time_sec * 1000 if elapsed_time_sec else 0
-            queue_wait_time_ms = queue_wait_time_sec * 1000 if queue_wait_time_sec else 0
+            our_queue_wait_ms = our_queue_wait_sec * 1000 if our_queue_wait_sec else 0
+            
+            # 时间线:
+            # T0: start_time (提交到我们队列的时间，记录在 submit_request 中)
+            # T1: 从队列取出 (调用 make_request 的时间)
+            # T2: first_chunk_time (收到第一个 token)
+            # T3: end_time (完成)
+            #
+            # TTFT = T2 - T0 (已经包含我们队列等待时间！)
+            #      = 我们队列等待 + vLLM内部排队 + 首token生成
+            # our_queue_wait = T1 - T0 (我们队列等待，单独记录)
+            # elapsed_time = T3 - T0 (总时间)
+            #
+            # 所以:
+            # - TTFT 已经是"总排队时间 + 首token生成"
+            # - 真正推理时间 = elapsed_time - TTFT = T3 - T2 (生成剩余token的时间)
+            
+            ttft_ms = ttft_ms if ttft_ms else 0
+            
+            # TTFT 已经包含了所有排队时间，直接使用它作为"排队+首token"时间
+            # 真正的推理时间 = 总时间 - TTFT = 生成剩余token的时间
+            if ttft_ms > 0:
+                total_queue_wait_ms = ttft_ms  # TTFT 已经是总排队+首token
+                inference_time_ms = max(0, elapsed_time_ms - ttft_ms)  # 生成剩余token
+            else:
+                # 回退：如果没有 TTFT，使用我们队列的等待时间
+                total_queue_wait_ms = our_queue_wait_ms
+                inference_time_ms = max(0, elapsed_time_ms - our_queue_wait_ms)
             
             if tokens is not None:
                 total_tokens += tokens
@@ -393,21 +421,21 @@ def calculate_metrics(concurrency, request_timeout, client_id, results, start_ti
                 total_input_tokens += input_token
             if elapsed_time_ms > 0:
                 latencies.append(elapsed_time_ms)  # 存储毫秒
-                # 计算推理时间 = 总时间(ms) - 队列等待时间(ms)
-                inference_time_ms = max(0, elapsed_time_ms - queue_wait_time_ms)
                 inference_times.append(inference_time_ms)
             if tps is not None:
                 tokens_per_second_list.append(tps)
-            if ttft is not None:
-                ttft_list.append(ttft)
+            if ttft_ms > 0:
+                ttft_list.append(ttft_ms)
             if slo == 0:
                 slo_violation_count += 1
-            if queue_wait_time_ms and queue_wait_time_ms > 0:
-                queue_wait_times.append(queue_wait_time_ms)  # 存储毫秒值
+            if total_queue_wait_ms > 0:
+                queue_wait_times.append(total_queue_wait_ms)  # TTFT 作为排队时间
 
     # 添加token调试信息
     print(f"[Debug] {client_id}: total_output_tokens={total_tokens}, total_input_tokens={total_input_tokens}")
-    print(f"[Debug] {client_id}: queue_wait_times count={len(queue_wait_times)}, avg={sum(queue_wait_times)/len(queue_wait_times) if queue_wait_times else 0:.1f}ms")
+    print(f"[Debug] {client_id}: total_queue_wait(our+ttft) count={len(queue_wait_times)}, avg={sum(queue_wait_times)/len(queue_wait_times) if queue_wait_times else 0:.1f}ms")
+    print(f"[Debug] {client_id}: inference_times(token_gen) count={len(inference_times)}, avg={sum(inference_times)/len(inference_times) if inference_times else 0:.1f}ms")
+    print(f"[Debug] {client_id}: ttft count={len(ttft_list)}, avg={sum(ttft_list)/len(ttft_list) if ttft_list else 0:.1f}ms")
 
     avg_latency_div_standard_latency = sum(latencies) / len(latencies) / (latency_slo if latency_slo > 0 else 1) if latencies else 0
 
