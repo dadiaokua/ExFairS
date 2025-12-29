@@ -43,25 +43,44 @@ class PriorityStrategy(SchedulingStrategy):
         self.priority_distribution_cache: Dict[int, int] = {}
     
     async def submit(self, request: Any, queue_state: QueueState) -> str:
-        """提交请求到优先级队列"""
+        """提交请求到优先级队列
+        
+        优先级规则：数字越小优先级越高（负数 > 0 > 正数）
+        例如：priority=-5 > priority=0 > priority=3
+        """
         async with self._queue_lock:
             priority = request.priority
             
-            if priority <= 0 or len(self.queue_list) == 0:
-                # 优先级0或队列为空，直接插入末尾
+            if len(self.queue_list) == 0:
+                # 队列为空，直接插入
                 self.queue_list.append(request)
             else:
-                # 计算可以插队的位置
+                # 计算可以超越的请求数量（优先级比当前请求低的，即数字更大的）
                 can_overtake_count = sum(
-                    1 for req in self.queue_list if req.priority < priority
+                    1 for req in self.queue_list if req.priority > priority
                 )
                 
                 if can_overtake_count > 0:
                     # 计算优先级优势比例
-                    priority_rank_ratio = priority / max(
-                        max(self.priority_distribution_cache.keys(), default=1), 1
-                    )
-                    base_forward_positions = int(can_overtake_count * priority_rank_ratio)
+                    # 获取当前队列中的优先级范围
+                    all_priorities = list(self.priority_distribution_cache.keys())
+                    if all_priorities:
+                        min_priority = min(all_priorities)  # 最高优先级（最小数字）
+                        max_priority = max(all_priorities)  # 最低优先级（最大数字）
+                        priority_range = max_priority - min_priority
+                        
+                        if priority_range > 0:
+                            # 计算当前请求的优先级在范围内的相对位置
+                            # 0 = 最高优先级，1 = 最低优先级
+                            priority_rank_ratio = (priority - min_priority) / priority_range
+                        else:
+                            priority_rank_ratio = 0.5  # 所有请求优先级相同
+                    else:
+                        priority_rank_ratio = 0.5
+                    
+                    # 优先级优势 = 1 - 排名比例（越高优先级，优势越大）
+                    priority_advantage = 1 - priority_rank_ratio
+                    base_forward_positions = int(can_overtake_count * priority_advantage)
                     
                     max_forward_positions = min(
                         base_forward_positions * self.insert_multiplier,
@@ -72,13 +91,13 @@ class PriorityStrategy(SchedulingStrategy):
                 else:
                     max_forward_positions = 0
                 
-                # 计算插入位置
+                # 计算插入位置：从末尾往前数 max_forward_positions 个位置
                 insert_pos = max(0, len(self.queue_list) - max_forward_positions)
                 self.queue_list.insert(insert_pos, request)
                 
                 if max_forward_positions > 0:
                     self.logger.info(f"Priority: Request {request.request_id} (priority={priority}) "
-                                   f"jumped {max_forward_positions} positions")
+                                   f"jumped {max_forward_positions} positions, advantage={priority_advantage:.2f}")
             
             # 更新优先级分布缓存
             self.priority_distribution_cache[priority] = \

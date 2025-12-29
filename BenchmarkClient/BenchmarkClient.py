@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import math
 import os
+import random
 
 from config.Config import GLOBAL_CONFIG
 from experiment.base_experiment import BaseExperiment
@@ -20,7 +22,8 @@ class BenchmarkClient:
     def __init__(self, client_type, client_index, qpm, port, api_key, tokenizer, exp_type,
                  distribution, request_timeout, concurrency, round, round_time, sleep, time_data,
                  result_queue, formatted_json, OpenAI_client, qpm_ratio, latency_slo, use_time_data=0, 
-                 queue_manager=None):
+                 queue_manager=None, qpm_variation=0.0, qpm_pattern="random", 
+                 burst_interval=3, burst_multiplier=2.0):
         """Initialize a benchmark client
 
         Args:
@@ -39,12 +42,23 @@ class BenchmarkClient:
             use_time_data (int): Whether to use time data
             formatted_json (list): Formatted input JSON data
             queue_manager: 共享的队列管理器实例
+            qpm_variation: QPM 波动范围 (0-1)
+            qpm_pattern: QPM 变化模式 ("random", "burst", "ramp", "wave")
+            burst_interval: 突发间隔（仅 burst 模式）
+            burst_multiplier: 突发倍数（仅 burst 模式）
         """
         self.client_type = client_type
         self.client_index = client_index
         self.client_id = f"{client_type}_{client_index}"
+        self.base_qpm = qpm  # 保存基础 QPM
         self.qpm = qpm
         self.qpm_ratio = qpm_ratio
+        
+        # QPM 动态变化配置
+        self.qpm_variation = qpm_variation
+        self.qpm_pattern = qpm_pattern
+        self.burst_interval = burst_interval
+        self.burst_multiplier = burst_multiplier
         self.port = port
         self.api_key = api_key
         self.distribution = distribution
@@ -125,6 +139,67 @@ class BenchmarkClient:
         logger.propagate = False
 
         return logger
+
+    def calculate_dynamic_qpm(self, round_index: int) -> float:
+        """
+        根据轮次和配置计算动态 QPM
+        
+        Args:
+            round_index: 当前轮次索引 (0-based)
+            
+        Returns:
+            计算后的 QPM 值
+        """
+        if self.qpm_variation <= 0:
+            # 无波动，返回基础 QPM
+            return self.base_qpm
+        
+        base = self.base_qpm
+        variation = self.qpm_variation
+        
+        if self.qpm_pattern == "random":
+            # 随机波动：在 ±variation 范围内随机
+            factor = 1 + random.uniform(-variation, variation)
+            dynamic_qpm = base * factor
+            
+        elif self.qpm_pattern == "burst":
+            # 突发模式：每隔 burst_interval 轮有一次高负载
+            if round_index % self.burst_interval == 0:
+                dynamic_qpm = base * self.burst_multiplier
+            else:
+                # 非突发轮次，正常随机波动（较小范围）
+                factor = 1 + random.uniform(-variation * 0.5, variation * 0.5)
+                dynamic_qpm = base * factor
+                
+        elif self.qpm_pattern == "ramp":
+            # 渐增模式：从 (1-variation)*base 逐渐增加到 (1+variation)*base
+            total_rounds = self.round
+            if total_rounds > 1:
+                progress = round_index / (total_rounds - 1)
+            else:
+                progress = 0.5
+            factor = (1 - variation) + 2 * variation * progress
+            dynamic_qpm = base * factor
+            
+        elif self.qpm_pattern == "wave":
+            # 正弦波模式：QPM 在周期内波动
+            total_rounds = self.round
+            # 一个完整周期
+            phase = 2 * math.pi * round_index / max(total_rounds, 1)
+            factor = 1 + variation * math.sin(phase)
+            dynamic_qpm = base * factor
+            
+        else:
+            # 未知模式，返回基础 QPM
+            dynamic_qpm = base
+        
+        # 确保 QPM 不低于 1
+        dynamic_qpm = max(1, dynamic_qpm)
+        
+        self.logger.info(f"Client {self.client_id}: Round {round_index + 1} dynamic QPM: "
+                        f"{dynamic_qpm:.1f} (base={base}, pattern={self.qpm_pattern}, variation={variation})")
+        
+        return dynamic_qpm
 
     def register_request_id(self, request_id):
         """注册一个新的请求ID"""
@@ -236,9 +311,11 @@ class BenchmarkClient:
         print(f"Starting benchmarks for client {self.client_id} with {self.round} configurations")
 
         for i in range(self.round):
-            # Run benchmark with current configuration
+            # 计算动态 QPM
+            self.qpm = self.calculate_dynamic_qpm(i)
+            # 应用 QPM ratio（如果需要）
             self.qpm = self.qpm * self.qpm_ratio
-            print(f"Client {self.client_id}: Running configuration {i + 1}/{self.round}: {self.qpm}")
+            print(f"Client {self.client_id}: Running configuration {i + 1}/{self.round}: QPM={self.qpm:.1f}")
             result, benchmark_experiment = await self.run_benchmark(GLOBAL_CONFIG["output_tokens"], self.qpm, i, self.latency_slo)
 
             # Store result first

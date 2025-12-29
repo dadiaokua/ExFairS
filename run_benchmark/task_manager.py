@@ -192,7 +192,11 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
             exp_type=args.exp,
             qpm_ratio=args.short_client_qpm_ratio,
             latency_slo=int(slo_value),
-            queue_manager=queue_manager  # 传递队列管理器
+            queue_manager=queue_manager,
+            qpm_variation=getattr(args, 'qpm_variation', 0.0),
+            qpm_pattern=getattr(args, 'qpm_pattern', 'random'),
+            burst_interval=getattr(args, 'burst_interval', 3),
+            burst_multiplier=getattr(args, 'burst_multiplier', 2.0)
         )
         clients.append(client)
         tasks.append(client.start())
@@ -224,7 +228,11 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
             exp_type=args.exp,
             qpm_ratio=args.long_client_qpm_ratio,
             latency_slo=int(slo_value),
-            queue_manager=queue_manager  # 传递队列管理器
+            queue_manager=queue_manager,
+            qpm_variation=getattr(args, 'qpm_variation', 0.0),
+            qpm_pattern=getattr(args, 'qpm_pattern', 'random'),
+            burst_interval=getattr(args, 'burst_interval', 3),
+            burst_multiplier=getattr(args, 'burst_multiplier', 2.0)
         )
         clients.append(client)
         tasks.append(client.start())
@@ -255,7 +263,11 @@ async def setup_benchmark_tasks(args, all_results, request_queue, logger):
             exp_type=args.exp,
             qpm_ratio=args.mix_client_qpm_ratio,
             latency_slo=int(slo_value),
-            queue_manager=queue_manager  # 传递队列管理器
+            queue_manager=queue_manager,
+            qpm_variation=getattr(args, 'qpm_variation', 0.0),
+            qpm_pattern=getattr(args, 'qpm_pattern', 'random'),
+            burst_interval=getattr(args, 'burst_interval', 3),
+            burst_multiplier=getattr(args, 'burst_multiplier', 2.0)
         )
         clients.append(client)
         tasks.append(client.start())

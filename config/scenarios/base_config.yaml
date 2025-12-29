@@ -40,6 +40,30 @@ experiment:
   sleep_time: 5
 
 # -----------------------------------------------------------------------------
+# QPM 动态变化配置 (Dynamic QPM Configuration)
+# -----------------------------------------------------------------------------
+# qpm_variation: QPM 的随机波动范围（0-1之间的比例）
+# - 0: 无波动，每轮 QPM 固定
+# - 0.3: QPM 在 ±30% 范围内随机波动
+# - 例如：基础 QPM=20，variation=0.3，则每轮 QPM 在 14-26 之间随机
+qpm_variation: 0.3
+
+# qpm_pattern: QPM 变化模式
+# - "random": 每轮随机波动
+# - "burst": 周期性突发（每隔几轮有一次高负载）
+# - "ramp": 逐渐增加负载
+# - "wave": 正弦波形式变化
+qpm_pattern: "random"
+
+# burst_interval: 突发间隔（仅当 qpm_pattern="burst" 时有效）
+# - 每隔多少轮出现一次突发负载
+burst_interval: 3
+
+# burst_multiplier: 突发时的 QPM 倍数
+# - 突发轮次的 QPM = 基础 QPM * burst_multiplier
+burst_multiplier: 2.0
+
+# -----------------------------------------------------------------------------
 # 分布配置 (Distribution Configuration)
 # -----------------------------------------------------------------------------
 # distribution: 请求间隔时间的分布类型

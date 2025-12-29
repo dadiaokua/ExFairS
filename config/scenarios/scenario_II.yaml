@@ -1,30 +1,33 @@
 # =============================================================================
 # Scenario II: High Contention（高竞争场景）
 # =============================================================================
-# 实验数据: 短请求~19s(高压), 长请求~13s
-# SLO设置: 全部紧张，测试高压公平性
-#   - 短请求: 16s (低于实际19s，高违约)
-#   - 长请求: 18s (高于实际13s，但仍有压力)
+# 实验数据: 短请求~17-19s, 长请求~13-15s
+# 场景特点: 全部客户端SLO紧张，测试高压下的公平性
+# SLO设置: 全部设置在实际延迟附近或略低
+#   - 短请求: 17s/18s (紧张，预期30-60%违约)
+#   - 长请求: 14s/15s (紧张，预期20-40%违约)
 # =============================================================================
 
 name: "Scenario_II_High_Contention"
-description: "High contention with tight SLO"
+description: "High contention with tight SLO for all clients"
 
 clients:
   short:
     count: 2
     qpm: [32, 32]
     qpm_ratio: 1
-    slo: [16, 16]        # 低于实际19s，高违约
+    slo: [17, 18]           # 紧张SLO
   
   long:
     count: 2
     qpm: [32, 32]
     qpm_ratio: 1
-    slo: [18, 18]        # 高于实际13s
+    slo: [14, 15]           # 紧张SLO
   
   mix:
     count: 0
     qpm: []
     qpm_ratio: 1
     slo: []
+
+# 总QPM: 128

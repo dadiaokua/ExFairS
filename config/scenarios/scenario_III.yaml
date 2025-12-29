@@ -1,28 +1,28 @@
 # =============================================================================
-# Scenario III: Long Request Dominant（长请求主导场景）
+# Scenario III: Asymmetric Load（非对称负载场景）
 # =============================================================================
-# 实验数据: 短请求~17s, 长请求~13s
-# 场景特点: 2短+4长，长请求主导
-# SLO设置:
-#   - 短请求: 17s/18s 
-#   - 长请求: 19s/21s (数量多，给宽松SLO)
+# 实验数据: 短请求~17-19s, 长请求~13-15s
+# 场景特点: 2短+4长，长请求主导，负载不均衡
+# SLO设置: 
+#   - 短请求: 19s/21s (给少数派稍宽松的SLO)
+#   - 长请求: 14s/15s/16s/18s (渐变SLO)
 # =============================================================================
 
-name: "Scenario_III_Long_Dominant"
-description: "Long request dominant: 2 short + 4 long"
+name: "Scenario_III_Asymmetric_Load"
+description: "Asymmetric load: 2 short + 4 long with varied SLO"
 
 clients:
   short:
     count: 2
-    qpm: [24, 24]
+    qpm: [20, 24]           # 较低负载
     qpm_ratio: 1
-    slo: [17, 18]
+    slo: [19, 21]           # 稍宽松
   
   long:
     count: 4
-    qpm: [20, 20, 20, 20]
+    qpm: [20, 20, 22, 22]   # 主导负载
     qpm_ratio: 1
-    slo: [19, 19, 21, 21]
+    slo: [14, 15, 16, 18]   # 渐变SLO
   
   mix:
     count: 0

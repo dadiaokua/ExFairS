@@ -520,7 +520,11 @@ else
             --quantization "$QUANTIZATION" \
             --disable_log_stats "$DISABLE_LOG_STATS" \
             --enable_prefix_caching "$ENABLE_PREFIX_CACHING" \
-            --scheduling_policy "$SCHEDULING_POLICY"; then
+            --scheduling_policy "$SCHEDULING_POLICY" \
+            --qpm_variation "$QPM_VARIATION" \
+            --qpm_pattern "$QPM_PATTERN" \
+            --burst_interval "$BURST_INTERVAL" \
+            --burst_multiplier "$BURST_MULTIPLIER"; then
             
             success_count=$((success_count + 1))
             echo "✅ $exp 完成"

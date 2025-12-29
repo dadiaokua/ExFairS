@@ -111,6 +111,12 @@ print(json.dumps(merged))
     export SLEEP_TIME=$(echo "$SCENARIO_CONFIG_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin)['experiment']['sleep_time'])")
     export DISTRIBUTION=$(echo "$SCENARIO_CONFIG_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin)['distribution'])")
     export USE_TIME_DATA=$(echo "$SCENARIO_CONFIG_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin)['use_time_data'])")
+    
+    # QPM 动态变化配置
+    export QPM_VARIATION=$(echo "$SCENARIO_CONFIG_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin).get('qpm_variation', 0))")
+    export QPM_PATTERN=$(echo "$SCENARIO_CONFIG_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin).get('qpm_pattern', 'random'))")
+    export BURST_INTERVAL=$(echo "$SCENARIO_CONFIG_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin).get('burst_interval', 3))")
+    export BURST_MULTIPLIER=$(echo "$SCENARIO_CONFIG_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin).get('burst_multiplier', 2.0))")
 else
     # 默认配置
     export SHORT_CLIENTS=0
@@ -133,5 +139,9 @@ else
     export SLEEP_TIME=60
     export DISTRIBUTION="normal"
     export USE_TIME_DATA=0
+    export QPM_VARIATION=0.3
+    export QPM_PATTERN="random"
+    export BURST_INTERVAL=3
+    export BURST_MULTIPLIER=2.0
 fi
 

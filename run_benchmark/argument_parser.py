@@ -87,6 +87,14 @@ def parse_args(logger):
     parser.add_argument('--max_num_batched_tokens', type=int, default=65536, help='Maximum number of batched tokens')
     parser.add_argument('--scheduling_policy', type=str, default="priority", help='Scheduling policy')
     
+    # QPM 动态变化参数
+    parser.add_argument('--qpm_variation', type=float, default=0.0, help='QPM variation ratio (0-1)')
+    parser.add_argument('--qpm_pattern', type=str, default="random", 
+                       choices=["random", "burst", "ramp", "wave"],
+                       help='QPM variation pattern')
+    parser.add_argument('--burst_interval', type=int, default=3, help='Burst interval for burst pattern')
+    parser.add_argument('--burst_multiplier', type=float, default=2.0, help='Burst multiplier for burst pattern')
+    
     args = parser.parse_args()
     return args
 
@@ -179,6 +187,15 @@ def print_benchmark_config(args, logger):
     logger.info(f"Experiment: {args.exp}")
     logger.info(f"Tokenizer: {args.tokenizer}")
     logger.info(f"Request Model Name: {args.request_model_name}")
+    
+    # QPM 动态配置
+    if hasattr(args, 'qpm_variation') and args.qpm_variation > 0:
+        logger.info("=== Dynamic QPM Configuration ===")
+        logger.info(f"QPM Variation: ±{args.qpm_variation * 100:.0f}%")
+        logger.info(f"QPM Pattern: {args.qpm_pattern}")
+        if args.qpm_pattern == "burst":
+            logger.info(f"Burst Interval: {args.burst_interval}")
+            logger.info(f"Burst Multiplier: {args.burst_multiplier}")
     
     # 显示后端配置
     if getattr(args, 'start_engine', True):
