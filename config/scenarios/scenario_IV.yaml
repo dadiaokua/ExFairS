@@ -1,34 +1,35 @@
 # =============================================================================
-# Scenario IV: Bursty vs Steady（突发vs稳定场景）
+# Scenario IV: Short-Long-Mix Hybrid（短长混合场景）
 # =============================================================================
-# 实验数据: mix类型平均~14-16s
-# 场景特点: 极端负载差异(12 vs 36 QPM)，测试突发流量处理
-# SLO设置: 低负载用户期望快速响应，高负载用户容忍更长延迟
-#   - 低负载(12QPM): 14s/15s (期望快速)
-#   - 高负载(36QPM): 18s/20s (允许更长)
-# 负载: 150% (原128 -> 192)
+# 实验数据: short~17-19s, long~13-15s, mix~14-16s
+# 场景特点: 10个用户，三种类型混合，形成多维度差异化
+# SLO设置: 
+#   - 短请求: 较紧 (容易违约)
+#   - 长请求: 适中 (有一定违约风险)
+#   - Mix请求: 较松 (不太会违约)
+# 负载: 120% (适中压力)
 # =============================================================================
 
-name: "Scenario_IV_Bursty_Steady"
-description: "Bursty vs Steady: low QPM expects fast, high QPM tolerates delay (150% load)"
+name: "Scenario_IV_Short_Long_Mix_Hybrid"
+description: "Heterogeneous workload with 10 users: short, long, and mix (120% load)"
 
 clients:
   short:
-    count: 0
-    qpm: []
+    count: 3
+    qpm: [12, 14, 16]       # 短请求用户，渐变QPM
     qpm_ratio: 1
-    slo: []
+    slo: [15, 17, 19]       # 渐变SLO: 紧->中->松
   
   long:
-    count: 0
-    qpm: []
+    count: 4
+    qpm: [12, 14, 16, 18]   # 长请求用户，渐变QPM
     qpm_ratio: 1
-    slo: []
+    slo: [13, 14, 16, 18]   # 渐变SLO
   
   mix:
-    count: 8
-    qpm: [12, 12, 12, 12, 36, 36, 36, 36]   # 原 8, 8, 8, 8, 24, 24, 24, 24 * 1.5
+    count: 3
+    qpm: [14, 16, 18]       # Mix用户，介于两者之间
     qpm_ratio: 1
-    slo: [14, 14, 15, 15, 18, 18, 20, 20]
+    slo: [18, 20, 22]       # 较松SLO，愿意等待
 
-# 总QPM: 192 (原128 * 1.5)
+# 总QPM: 150 (10个用户，适中负载)

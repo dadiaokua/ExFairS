@@ -1,36 +1,34 @@
 # =============================================================================
-# Scenario V: Gradual Spectrum（渐变谱系场景）
+# Scenario V: Extreme Heterogeneity（极端异构场景）
 # =============================================================================
-# 实验数据: mix类型平均~14-16s
-# 场景特点: 10客户端，QPM和SLO都呈渐变分布
-# SLO设置: 13s-21s渐变，围绕实际延迟14-16s
-#   - 低QPM客户端: 更紧的SLO (期望快速)
-#   - 高QPM客户端: 更松的SLO (容忍延迟)
-# 负载: 150% (原130 -> 195)
+# 实验数据: short~17-19s, long~13-15s
+# 场景特点: 10个用户，只有short和long，无mix，制造极端差异
+# SLO设置: 
+#   - 短请求: 有紧有松，制造内部竞争
+#   - 长请求: SLO渐变，制造公平性挑战
+# 负载: 120% (适中压力)
 # =============================================================================
 
-name: "Scenario_V_Gradual_Spectrum"
-description: "10 clients with gradual QPM and SLO spectrum (150% load)"
+name: "Scenario_V_Extreme_Heterogeneity"
+description: "10 users with only short and long, extreme SLO variance (120% load)"
 
 clients:
   short:
-    count: 0
-    qpm: []
+    count: 5
+    qpm: [12, 14, 16, 18, 20]   # 渐变QPM
     qpm_ratio: 1
-    slo: []
+    slo: [14, 16, 18, 20, 22]   # 渐变SLO: 紧->中->松
   
   long:
+    count: 5
+    qpm: [10, 12, 14, 16, 18]   # 渐变QPM
+    qpm_ratio: 1
+    slo: [12, 13, 15, 17, 19]   # 渐变SLO: 紧->中->松
+  
+  mix:
     count: 0
     qpm: []
     qpm_ratio: 1
     slo: []
-  
-  mix:
-    count: 10
-    # QPM 渐变: 12 -> 27 (原 8-18 * 1.5)
-    qpm: [12, 15, 15, 18, 18, 21, 21, 24, 24, 27]
-    qpm_ratio: 1
-    # SLO 渐变: 低QPM期望快，高QPM容忍慢
-    slo: [13, 14, 15, 15, 16, 17, 18, 19, 20, 21]
 
-# 总QPM: 195 (原130 * 1.5)
+# 总QPM: 150 (10个用户，适中负载)
