@@ -6,22 +6,22 @@
 # SLO设置: 围绕实际延迟设置，让部分请求满足、部分不满足
 #   - 短请求: 18s/22s (一个紧一个松)
 #   - 长请求: 15s/20s (一个紧一个松)
-# 负载: 120% (原150% * 0.8)
+# 负载: ~100 QPM
 # =============================================================================
 
 name: "Scenario_I_Balanced_Load"
-description: "Balanced load with differentiated SLO (120% load)"
+description: "Balanced load with differentiated SLO (~100 QPM)"
 
 clients:
   short:
     count: 2
-    qpm: [34, 43]           # 原42, 54 * 0.8
+    qpm: [25, 25]           # 目标100 QPM / 4用户
     qpm_ratio: 1
     slo: [18, 22]           # 一个紧(50%违约)，一个松(几乎不违约)
   
   long:
     count: 2
-    qpm: [34, 43]           # 原42, 54 * 0.8
+    qpm: [25, 25]           # 目标100 QPM / 4用户
     qpm_ratio: 1
     slo: [15, 20]           # 一个紧(可能违约)，一个松(不违约)
   
@@ -31,4 +31,4 @@ clients:
     qpm_ratio: 1
     slo: []
 
-# 总QPM: 154 (原192 * 0.8)
+# 总QPM: 100

@@ -7,29 +7,29 @@
 #   - 短请求: 较紧 (容易违约)
 #   - 长请求: 适中 (有一定违约风险)
 #   - Mix请求: 较松 (不太会违约)
-# 负载: 120% (适中压力)
+# 负载: ~100 QPM
 # =============================================================================
 
 name: "Scenario_IV_Short_Long_Mix_Hybrid"
-description: "Heterogeneous workload with 10 users: short, long, and mix (120% load)"
+description: "Heterogeneous workload with 10 users: short, long, and mix (~100 QPM)"
 
 clients:
   short:
     count: 3
-    qpm: [12, 14, 16]       # 短请求用户，渐变QPM
+    qpm: [10, 10, 10]       # 短请求用户
     qpm_ratio: 1
     slo: [15, 17, 19]       # 渐变SLO: 紧->中->松
   
   long:
     count: 4
-    qpm: [12, 14, 16, 18]   # 长请求用户，渐变QPM
+    qpm: [10, 10, 10, 10]   # 长请求用户
     qpm_ratio: 1
     slo: [13, 14, 16, 18]   # 渐变SLO
   
   mix:
     count: 3
-    qpm: [14, 16, 18]       # Mix用户，介于两者之间
+    qpm: [10, 10, 10]       # Mix用户
     qpm_ratio: 1
     slo: [18, 20, 22]       # 较松SLO，愿意等待
 
-# 总QPM: 150 (10个用户，适中负载)
+# 总QPM: 100 (10个用户 * 10 QPM)
