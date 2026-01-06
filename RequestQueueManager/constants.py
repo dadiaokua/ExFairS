@@ -3,14 +3,14 @@
 
 # Worker 相关
 WORKER_EMPTY_CYCLE_THRESHOLD = 1200  # 120秒无请求后记录警告
-WORKER_SLEEP_INTERVAL = 0.2  # Worker 每轮睡眠时间（秒）
+WORKER_SLEEP_INTERVAL = 0.4  # Worker 每轮睡眠时间（秒）
 REQUEST_TIMEOUT_SECONDS = 60.0  # 请求超时时间（秒）
 
 # 批量处理
-MAX_BATCH_SIZE = 64  # 每批最多处理的请求数（平衡公平性和吞吐量）
+MAX_BATCH_SIZE = 32  # 每批最多处理的请求数（平衡公平性和吞吐量）
 
 # 并发控制
-MAX_CONCURRENCY = 32  # 最大并发请求数（与 vLLM max_num_seqs 对齐）
+MAX_CONCURRENCY = 10  # 最大并发请求数（与 vLLM max_num_seqs 对齐）
 
 # SLO-Greedy 冷启动
 COLD_START_THRESHOLD = 10  # 请求数少于此值视为新客户端
