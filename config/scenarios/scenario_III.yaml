@@ -6,22 +6,22 @@
 # SLO设置: 
 #   - 短请求: 19s/21s (给少数派稍宽松的SLO)
 #   - 长请求: 14s/15s/16s/18s (渐变SLO)
-# 负载: ~100 QPM
+# 负载: ~80 QPM
 # =============================================================================
 
 name: "Scenario_III_Asymmetric_Load"
-description: "Asymmetric load: 2 short + 4 long with varied SLO (~100 QPM)"
+description: "Asymmetric load: 2 short + 4 long with varied SLO (~80 QPM)"
 
 clients:
   short:
     count: 2
-    qpm: [15, 18]           # 短请求用户
+    qpm: [12, 15]           # 短请求用户
     qpm_ratio: 1
     slo: [19, 21]           # 稍宽松
   
   long:
     count: 4
-    qpm: [16, 16, 17, 17]   # 长请求用户
+    qpm: [13, 13, 13, 14]   # 长请求用户
     qpm_ratio: 1
     slo: [14, 15, 16, 18]   # 渐变SLO
   
@@ -31,4 +31,4 @@ clients:
     qpm_ratio: 1
     slo: []
 
-# 总QPM: 99
+# 总QPM: 80 (12+15+13+13+13+14)

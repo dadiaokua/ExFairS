@@ -6,22 +6,22 @@
 # SLO设置: 
 #   - 短请求: 有紧有松，制造内部竞争
 #   - 长请求: SLO渐变，制造公平性挑战
-# 负载: ~100 QPM
+# 负载: ~80 QPM
 # =============================================================================
 
 name: "Scenario_V_Extreme_Heterogeneity"
-description: "10 users with only short and long, extreme SLO variance (~100 QPM)"
+description: "10 users with only short and long, extreme SLO variance (~80 QPM)"
 
 clients:
   short:
     count: 5
-    qpm: [10, 10, 10, 10, 10]   # 均匀分布
+    qpm: [8, 8, 8, 8, 8]        # 均匀分布
     qpm_ratio: 1
     slo: [14, 16, 18, 20, 22]   # 渐变SLO: 紧->中->松
   
   long:
     count: 5
-    qpm: [10, 10, 10, 10, 10]   # 均匀分布
+    qpm: [8, 8, 8, 8, 8]        # 均匀分布
     qpm_ratio: 1
     slo: [12, 13, 15, 17, 19]   # 渐变SLO: 紧->中->松
   
@@ -31,4 +31,4 @@ clients:
     qpm_ratio: 1
     slo: []
 
-# 总QPM: 100 (10个用户 * 10 QPM)
+# 总QPM: 80 (10个用户 * 8 QPM)
