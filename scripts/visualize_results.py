@@ -272,20 +272,31 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
         y_pos = total_s + max_val_s * 0.03
         ax.text(i, y_pos, label, ha='center', va='bottom', fontsize=8)
     
-    # 4. Jain Index (SAFI)
+    # 4. Jain Index (三个指标分组柱状图)
     ax = axes1[1, 0]
-    values = [metrics[s]['jain_index'] for s in strategies]
-    bars = ax.bar(labels, values, color=colors, edgecolor='black', linewidth=0.5)
-    ax.set_ylabel('Jain Index (SAFI)', fontsize=10)
-    ax.set_title('(d) Fairness (SAFI) ↑', fontsize=10)
-    min_val = min(values) if values else 0
-    max_val = max(values) if values else 1
+    x = np.arange(len(strategies))
+    width = 0.25
+    
+    safi_values = [metrics[s]['jain_index'] for s in strategies]
+    token_values = [metrics[s].get('jain_index_token', 0) for s in strategies]
+    slo_values = [metrics[s].get('jain_index_slo', 0) for s in strategies]
+    
+    bars1 = ax.bar(x - width, safi_values, width, label='SAFI', color='#8da0cb', edgecolor='black', linewidth=0.5)
+    bars2 = ax.bar(x, token_values, width, label='Token', color='#fc8d62', edgecolor='black', linewidth=0.5)
+    bars3 = ax.bar(x + width, slo_values, width, label='SLO Vio', color='#66c2a5', edgecolor='black', linewidth=0.5)
+    
+    ax.set_ylabel('Jain Index', fontsize=10)
+    ax.set_title('(d) Fairness (Jain Index) ↑', fontsize=10)
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=8)
+    ax.legend(fontsize=7, loc='lower right')
+    
+    all_values = safi_values + token_values + slo_values
+    min_val = min(all_values) if all_values else 0
+    max_val = max(all_values) if all_values else 1
     y_min = max(0, min_val - 0.1)
-    y_max = min(1.01, max_val + 0.1)
+    y_max = min(1.05, max_val + 0.1)
     ax.set_ylim(y_min, y_max)
-    for bar, val in zip(bars, values):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, f'{val:.4f}', 
-                ha='center', va='bottom', fontsize=8)
     
     # 5. P95/P99 延迟（转换为秒）
     ax = axes1[1, 1]
