@@ -10,7 +10,7 @@ REQUEST_TIMEOUT_SECONDS = 60.0  # 请求超时时间（秒）
 MAX_BATCH_SIZE = 32  # 每批最多处理的请求数（平衡公平性和吞吐量）
 
 # 并发控制
-MAX_CONCURRENCY = 16  # 最大并发请求数（与 vLLM max_num_seqs 对齐）
+MAX_CONCURRENCY = 24  # 最大并发请求数（与 vLLM max_num_seqs 对齐）
 
 # SLO-Greedy 冷启动
 COLD_START_THRESHOLD = 10  # 请求数少于此值视为新客户端

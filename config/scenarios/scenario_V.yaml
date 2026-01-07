@@ -1,29 +1,28 @@
 # =============================================================================
 # Scenario V: Extreme Heterogeneity（极端异构场景）
 # =============================================================================
-# 实验数据: short~17-19s, long~13-15s
 # 场景特点: 10个用户，只有short和long，无mix，制造极端差异
 # SLO设置: 
-#   - 短请求: 有紧有松，制造内部竞争
-#   - 长请求: SLO渐变，制造公平性挑战
-# 负载: ~80 QPM
+#   - 短请求: 21s/24s/27s/30s/33s (原14/16/18/20/22 * 1.5)
+#   - 长请求: 18s/19s/22s/25s/28s (原12/13/15/17/19 * 1.5)
+# 负载: ~70 QPM
 # =============================================================================
 
 name: "Scenario_V_Extreme_Heterogeneity"
-description: "10 users with only short and long, extreme SLO variance (~80 QPM)"
+description: "10 users with only short and long, extreme SLO variance (~70 QPM)"
 
 clients:
   short:
     count: 5
-    qpm: [8, 8, 8, 8, 8]        # 均匀分布
+    qpm: [7, 7, 7, 7, 7]        # 均匀分布
     qpm_ratio: 1
-    slo: [14, 16, 18, 20, 22]   # 渐变SLO: 紧->中->松
+    slo: [21, 24, 27, 30, 33]   # 原来 14/16/18/20/22 * 1.5
   
   long:
     count: 5
-    qpm: [8, 8, 8, 8, 8]        # 均匀分布
+    qpm: [7, 7, 7, 7, 7]        # 均匀分布
     qpm_ratio: 1
-    slo: [12, 13, 15, 17, 19]   # 渐变SLO: 紧->中->松
+    slo: [18, 19, 22, 25, 28]   # 原来 12/13/15/17/19 * 1.5
   
   mix:
     count: 0
@@ -31,4 +30,4 @@ clients:
     qpm_ratio: 1
     slo: []
 
-# 总QPM: 80 (10个用户 * 8 QPM)
+# 总QPM: 70 (10个用户 * 7 QPM)
