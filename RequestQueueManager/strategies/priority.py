@@ -47,6 +47,10 @@ class PriorityStrategy(SchedulingStrategy):
         
         优先级规则：数字越小优先级越高（负数 > 0 > 正数）
         例如：priority=-5 > priority=0 > priority=3
+        
+        ExFairS 增强：
+        - 高优先级请求（负数）可以更激进地插队
+        - 使用绝对优先级差值来决定插队距离
         """
         async with self._queue_lock:
             priority = request.priority
@@ -61,26 +65,37 @@ class PriorityStrategy(SchedulingStrategy):
                 )
                 
                 if can_overtake_count > 0:
-                    # 计算优先级优势比例
-                    # 获取当前队列中的优先级范围
-                    all_priorities = list(self.priority_distribution_cache.keys())
-                    if all_priorities:
-                        min_priority = min(all_priorities)  # 最高优先级（最小数字）
-                        max_priority = max(all_priorities)  # 最低优先级（最大数字）
-                        priority_range = max_priority - min_priority
-                        
-                        if priority_range > 0:
-                            # 计算当前请求的优先级在范围内的相对位置
-                            # 0 = 最高优先级，1 = 最低优先级
-                            priority_rank_ratio = (priority - min_priority) / priority_range
-                        else:
-                            priority_rank_ratio = 0.5  # 所有请求优先级相同
+                    # ExFairS 增强：使用更激进的插队策略
+                    # 
+                    # 策略1：基于优先级差值的插队
+                    # 如果优先级是负数（高优先级），允许更多插队
+                    if priority < 0:
+                        # 负优先级：绝对值越大，优势越大
+                        # 例如 priority=-10 比 priority=-2 优势更大
+                        priority_advantage = min(1.0, abs(priority) / 20.0)  # 归一化到 [0, 1]
                     else:
-                        priority_rank_ratio = 0.5
+                        # 正优先级或零：使用相对排名
+                        all_priorities = list(self.priority_distribution_cache.keys())
+                        if all_priorities:
+                            min_priority = min(all_priorities)
+                            max_priority = max(all_priorities)
+                            priority_range = max_priority - min_priority
+                            
+                            if priority_range > 0:
+                                priority_rank_ratio = (priority - min_priority) / priority_range
+                                priority_advantage = 1 - priority_rank_ratio
+                            else:
+                                priority_advantage = 0.5
+                        else:
+                            priority_advantage = 0.5
                     
-                    # 优先级优势 = 1 - 排名比例（越高优先级，优势越大）
-                    priority_advantage = 1 - priority_rank_ratio
+                    # 计算基础前进位置
                     base_forward_positions = int(can_overtake_count * priority_advantage)
+                    
+                    # ExFairS 增强：对于高优先级请求，提供额外的插队奖励
+                    if priority < -5:  # 优先级特别高（被 ExFairS 大幅提升过）
+                        # 额外奖励：可以多插 50% 的位置
+                        base_forward_positions = int(base_forward_positions * 1.5)
                     
                     max_forward_positions = min(
                         base_forward_positions * self.insert_multiplier,
@@ -97,7 +112,7 @@ class PriorityStrategy(SchedulingStrategy):
                 
                 if max_forward_positions > 0:
                     self.logger.info(f"Priority: Request {request.request_id} (priority={priority}) "
-                                   f"jumped {max_forward_positions} positions, advantage={priority_advantage:.2f}")
+                                   f"jumped {max_forward_positions} positions")
             
             # 更新优先级分布缓存
             self.priority_distribution_cache[priority] = \

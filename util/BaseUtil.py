@@ -131,27 +131,41 @@ def get_average_success_rate(clients):
 
 
 def adjust_resources(client_low_fairness_ratio, client_high_fairness_ratio, delta, avg_success_rate):
-    """统一的资源调整策略"""
-    # 调整 time_ratio
-    # client_high_fairness_ratio.time_ratio = client_high_fairness_ratio.time_ratio * (1 - delta)
-    # client_low_fairness_ratio.time_ratio = client_low_fairness_ratio.time_ratio * (1 + delta)
-    #
-    # client_low_fairness_ratio.max_service = client_low_fairness_ratio.service * delta / 2
-
-    # # 减少 client1 的 active_ratio - 无论负载如何
-    # min_active_ratio = GLOBAL_CONFIG.get("MIN_ACTIVE_RATIO", 0.1)
-    # client_low_fairness_ratio.active_ratio = max(client_low_fairness_ratio.active_ratio - delta, min_active_ratio)
-    # client_high_fairness_ratio.active_ratio = min(client_high_fairness_ratio.active_ratio + delta, 1)
+    """
+    统一的资源调整策略 - ExFairS 核心
     
-    # 修改优先级调整逻辑：数字越小优先级越高
-    # 注意：负数优先级表示更高的优先级，0表示默认优先级，正数表示较低的优先级
-    priority_changes = int(delta * 10)
+    调整逻辑：
+    - fairness_ratio 高的客户端 = 体验差（SLO违约多或资源少）→ 需要提升优先级
+    - fairness_ratio 低的客户端 = 体验好 → 降低优先级，让出资源
     
-    # 公平性高的客户端应该获得更高优先级（更小的数字，可以为负数），帮助它降低fairness ratio
+    优先级规则：数字越小优先级越高（负数 > 0 > 正数）
+    """
+    # 基础优先级变化量 = delta * 放大系数
+    # delta 通常在 0.05-0.5 之间，乘以 20 得到 1-10 的优先级变化
+    priority_amplifier = 20  # 放大系数，让优先级变化更显著
+    priority_changes = max(1, int(delta * priority_amplifier))  # 至少变化 1
+    
+    # 根据 SLO 违约情况进一步调整
+    # 如果 high_fairness_ratio 客户端的 SLO 违约率很高，额外提升其优先级
+    if hasattr(client_high_fairness_ratio, 'slo_violation_count') and hasattr(client_high_fairness_ratio, 'results'):
+        if client_high_fairness_ratio.results:
+            total_req = client_high_fairness_ratio.results[-1].get('total_requests', 1)
+            violation_rate = client_high_fairness_ratio.slo_violation_count / total_req
+            if violation_rate > 0.5:  # 违约率超过 50%
+                priority_changes = int(priority_changes * 1.5)  # 额外提升 50%
+                print(f"[ExFairS] High violation rate ({violation_rate:.2%}) detected, boosting priority change to {priority_changes}")
+    
+    # 公平性高的客户端（体验差）→ 获得更高优先级（更小的数字）
+    old_high_priority = client_high_fairness_ratio.priority
     client_high_fairness_ratio.priority = client_high_fairness_ratio.priority - priority_changes
     
-    # 公平性低的客户端应该获得更低优先级（更大的数字）
+    # 公平性低的客户端（体验好）→ 获得更低优先级（更大的数字）
+    old_low_priority = client_low_fairness_ratio.priority
     client_low_fairness_ratio.priority = client_low_fairness_ratio.priority + priority_changes
+    
+    print(f"[ExFairS] Priority adjustment: "
+          f"client_high({client_high_fairness_ratio.client_id}): {old_high_priority} -> {client_high_fairness_ratio.priority}, "
+          f"client_low({client_low_fairness_ratio.client_id}): {old_low_priority} -> {client_low_fairness_ratio.priority}")
 
 
 def update_credits_and_counters(client1, client2, delta):
@@ -193,7 +207,7 @@ def selectClients_LFS(clients):
     left, right = 0, len(eligible_clients) - 1
     while left < right:
         diff = abs(eligible_clients[left].fairness_ratio - eligible_clients[right].fairness_ratio)
-        if diff > GLOBAL_CONFIG['fairness_ratio_LFS']:
+        if diff > GLOBAL_CONFIG['fairness_ratio_exfairs']:
             if diff > max_diff:
                 max_diff = diff
                 best_pair = (left, right)

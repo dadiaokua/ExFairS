@@ -7,11 +7,10 @@ def get_monitor_file_time():
 GLOBAL_CONFIG = {
     "latency_slo": 5,
     "output_tokens": 512,
-    "alpha": 0.7,
-    "fairness_ratio_LFS": 0.1,
-    "fairness_ratio_VTC": 0.5,
-    'ADJUST_SENSITIVITY': 1,
-    "b": 1.5,
+    "alpha": 0.8,                       # SLO 违约率在公平性计算中的权重
+    "fairness_ratio_exfairs": 0.05,    # ExFairS 触发阈值（差值>此值才调整）
+    "fairness_ratio_VTC": 0.5,         # VTC 策略触发阈值
+    'ADJUST_SENSITIVITY': 1.5,         # 优先级调整灵敏度（越大调整幅度越大）
     "whether_fairness": 1,
     "max_granularity": 10,
     "round_time": 60,
