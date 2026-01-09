@@ -1,11 +1,12 @@
 # =============================================================================
 # Scenario I: Balanced Load（平衡负载场景）
 # =============================================================================
-# 配置: S+L Clients (QPM=50)
+# 配置: S+L Clients (QPM=37-38)
 # 描述: Balanced Load
 # 客户端: 4 (2S+2L)
-# QPM: 50, 50, 50, 50
+# QPM: 37, 38, 37, 38 (均匀分布)
 # SLO: 20, 30
+# 总 QPM: 150
 # =============================================================================
 
 name: "Scenario_I_Balanced_Load"
@@ -14,13 +15,13 @@ description: "Balanced Load with 2 Short + 2 Long clients"
 clients:
   short:
     count: 2
-    qpm: [50, 50]
+    qpm: [37, 38]
     qpm_ratio: 1
     slo: [20, 30]
   
   long:
     count: 2
-    qpm: [50, 50]
+    qpm: [37, 38]
     qpm_ratio: 1
     slo: [20, 30]
   
@@ -30,4 +31,4 @@ clients:
     qpm_ratio: 1
     slo: []
 
-# 总QPM: 200
+# 总QPM: 150

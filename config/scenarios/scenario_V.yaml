@@ -1,15 +1,16 @@
 # =============================================================================
-# Scenario V: High Concurrency (20 Mix)
+# Scenario V: High Concurrency (20 Mix, Varied QPM)
 # =============================================================================
-# 配置: Mix 20 Clients (QPM=5-15)
+# 配置: Mix 20 Clients (QPM=5-10)
 # 描述: High Concurrency
 # 客户端: 20 Mix
-# QPM: 5, 8, 12, 15
+# QPM: 5, 7, 8, 10 (Varied)
 # SLO: 5, 8, 10, 12, 15, 20
+# 总 QPM: 150
 # =============================================================================
 
 name: "Scenario_V_High_Concurrency_20Mix"
-description: "High Concurrency with 20 Mix clients"
+description: "High Concurrency with 20 Mix clients, varied QPM"
 
 clients:
   short:
@@ -26,8 +27,8 @@ clients:
   
   mix:
     count: 20
-    qpm: [5, 8, 12, 15, 5, 8, 12, 15, 5, 8, 12, 15, 5, 8, 12, 15, 5, 8, 12, 15]
+    qpm: [5, 7, 8, 10, 5, 7, 8, 10, 5, 7, 8, 10, 5, 7, 8, 10, 5, 7, 8, 10]
     qpm_ratio: 1
     slo: [5, 8, 10, 12, 15, 20, 5, 8, 10, 12, 15, 20, 5, 8, 10, 12, 15, 20, 5, 8]
 
-# 总QPM: 200
+# 总QPM: 150 (5+7+8+10)*5 = 30*5 = 150

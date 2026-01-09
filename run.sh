@@ -40,12 +40,11 @@ show_help() {
   - ExFairS, Justitia, SLOGreedy, VTC, FCFS  (基础模式)
 
 可用场景:
-  - 1 或 scenario_I                 Balanced Load (2S+2L, QPM=50)
-  - 2 或 scenario_II                Imbalanced Load (2S+2L, QPM=10-90)
-  - 3 或 scenario_III               Heterogeneous (4 Mix, QPM=20-40)
-  - 4 或 scenario_IV                Heterogeneous (8 Mix, QPM=10-30)
-  - 5 或 scenario_V                 High Concurrency (20 Mix, QPM=5-15)
-  - 6 或 scenario_VI                High Concurrency (20 Mix, QPM=4 Uniform)
+  - 1 或 scenario_I                 Balanced Load (2S+2L, QPM~38)
+  - 2 或 scenario_II                Imbalanced Load (2S+2L, QPM=10-65)
+  - 3 或 scenario_III               Heterogeneous (4 Mix, QPM=30-45)
+  - 4 或 scenario_IV                Heterogeneous (8 Mix, QPM=10-25)
+  - 5 或 scenario_V                 High Concurrency (20 Mix, QPM=5-10)
 
 示例:
   # 默认运行（所有场景 + 所有队列策略）
@@ -64,7 +63,7 @@ show_help() {
   $0 -e QUEUE_ExFairS -s scenario_I,scenario_II
 
 默认值:
-  场景: scenario_I,scenario_II,scenario_III,scenario_IV,scenario_V,scenario_VI
+  场景: scenario_I,scenario_II,scenario_III,scenario_IV,scenario_V
   策略: QUEUE_ExFairS,QUEUE_Justitia,QUEUE_SLOGreedy,QUEUE_VTC,QUEUE_FCFS
   
   💡 不加任何参数运行 $0 将按场景分组依次运行：
@@ -89,7 +88,6 @@ map_scenario() {
         3) echo "scenario_III" ;;
         4) echo "scenario_IV" ;;
         5) echo "scenario_V" ;;
-        6) echo "scenario_VI" ;;
         scenario_*) echo "$input" ;;  # 已经是完整名称
         *) echo "$input" ;;            # 其他情况原样返回
     esac
@@ -109,13 +107,12 @@ map_scenarios() {
 }
 
 list_scenarios() {
-    echo "可用场景:"
-    echo "  1 - scenario_I:   Balanced Load (2S+2L, QPM=50)"
-    echo "  2 - scenario_II:  Imbalanced Load (2S+2L, QPM=10-90)"
-    echo "  3 - scenario_III: Heterogeneous (4 Mix, QPM=20-40)"
-    echo "  4 - scenario_IV:  Heterogeneous (8 Mix, QPM=10-30)"
-    echo "  5 - scenario_V:   High Concurrency (20 Mix, QPM=5-15)"
-    echo "  6 - scenario_VI:  High Concurrency (20 Mix, QPM=4 Uniform)"
+    echo "可用场景 (总QPM均为150):"
+    echo "  1 - scenario_I:   Balanced Load (2S+2L, QPM~38)"
+    echo "  2 - scenario_II:  Imbalanced Load (2S+2L, QPM=10-65)"
+    echo "  3 - scenario_III: Heterogeneous (4 Mix, QPM=30-45)"
+    echo "  4 - scenario_IV:  Heterogeneous (8 Mix, QPM=10-25)"
+    echo "  5 - scenario_V:   High Concurrency (20 Mix, QPM=5-10)"
 }
 
 list_strategies() {
@@ -201,7 +198,7 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
     echo "🚀 批量运行模式"
     
     # 默认值
-    [[ -z "$SCENARIOS" ]] && SCENARIOS="scenario_I,scenario_II,scenario_III,scenario_IV,scenario_V,scenario_VI"
+    [[ -z "$SCENARIOS" ]] && SCENARIOS="scenario_I,scenario_II,scenario_III,scenario_IV,scenario_V"
     [[ -z "$EXPERIMENTS" ]] && EXPERIMENTS="QUEUE_ExFairS,QUEUE_Justitia,QUEUE_SLOGreedy,QUEUE_VTC,QUEUE_FCFS"
     
     # 转换为数组
