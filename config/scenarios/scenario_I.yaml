@@ -1,28 +1,28 @@
 # =============================================================================
 # Scenario I: Balanced Load（平衡负载场景）
 # =============================================================================
-# 场景特点: 4个客户端，负载均衡，SLO差异化
-# SLO设置: 围绕实际延迟设置，让部分请求满足、部分不满足
-#   - 短请求: 22s/26s (原18/22 * 1.2)
-#   - 长请求: 18s/24s (原15/20 * 1.2)
-# 负载: ~70 QPM
+# 配置: S+L Clients (QPM=50)
+# 描述: Balanced Load
+# 客户端: 4 (2S+2L)
+# QPM: 50, 50, 50, 50
+# SLO: 20, 30
 # =============================================================================
 
 name: "Scenario_I_Balanced_Load"
-description: "Balanced load with differentiated SLO (~70 QPM)"
+description: "Balanced Load with 2 Short + 2 Long clients"
 
 clients:
   short:
     count: 2
-    qpm: [17, 18]
+    qpm: [50, 50]
     qpm_ratio: 1
-    slo: [22, 26]           # 原来 18/22 * 1.2
+    slo: [20, 30]
   
   long:
     count: 2
-    qpm: [17, 18]
+    qpm: [50, 50]
     qpm_ratio: 1
-    slo: [18, 24]           # 原来 15/20 * 1.2
+    slo: [20, 30]
   
   mix:
     count: 0
@@ -30,4 +30,4 @@ clients:
     qpm_ratio: 1
     slo: []
 
-# 总QPM: 70
+# 总QPM: 200

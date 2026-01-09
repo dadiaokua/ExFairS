@@ -1,34 +1,33 @@
 # =============================================================================
-# Scenario IV: Short-Long-Mix Hybrid（短长混合场景）
+# Scenario IV: Heterogeneous (8 Mix)
 # =============================================================================
-# 场景特点: 10个用户，三种类型混合，形成多维度差异化
-# SLO设置: 
-#   - 短请求: 18s/20s/23s (原15/17/19 * 1.2)
-#   - 长请求: 16s/17s/19s/22s (原13/14/16/18 * 1.2)
-#   - Mix请求: 22s/24s/26s (原18/20/22 * 1.2)
-# 负载: ~70 QPM
+# 配置: Mix 8 Clients (QPM=10-30)
+# 描述: Heterogeneous
+# 客户端: 8 Mix
+# QPM: 10, 20, 30
+# SLO: 10, 15, 20, 25
 # =============================================================================
 
-name: "Scenario_IV_Short_Long_Mix_Hybrid"
-description: "Heterogeneous workload with 10 users: short, long, and mix (~70 QPM)"
+name: "Scenario_IV_Heterogeneous_8Mix"
+description: "Heterogeneous workload with 8 Mix clients"
 
 clients:
   short:
-    count: 3
-    qpm: [7, 7, 7]
+    count: 0
+    qpm: []
     qpm_ratio: 1
-    slo: [18, 20, 23]       # 原来 15/17/19 * 1.2
+    slo: []
   
   long:
-    count: 4
-    qpm: [7, 7, 7, 7]
+    count: 0
+    qpm: []
     qpm_ratio: 1
-    slo: [16, 17, 19, 22]   # 原来 13/14/16/18 * 1.2
+    slo: []
   
   mix:
-    count: 3
-    qpm: [7, 7, 7]
+    count: 8
+    qpm: [10, 15, 20, 25, 30, 10, 15, 20]
     qpm_ratio: 1
-    slo: [22, 24, 26]       # 原来 18/20/22 * 1.2
+    slo: [10, 15, 20, 25, 10, 15, 20, 25]
 
-# 总QPM: 70
+# 总QPM: 145

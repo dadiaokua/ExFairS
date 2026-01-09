@@ -1,33 +1,33 @@
 # =============================================================================
-# Scenario III: Asymmetric Load（非对称负载场景）
+# Scenario III: Heterogeneous (4 Mix)
 # =============================================================================
-# 场景特点: 2短+4长，长请求主导，负载不均衡
-# SLO设置: 
-#   - 短请求: 23s/25s (原19/21 * 1.2)
-#   - 长请求: 17s/18s/19s/22s (原14/15/16/18 * 1.2)
-# 负载: ~70 QPM
+# 配置: Mix 4 Clients (QPM=20-40)
+# 描述: Heterogeneous
+# 客户端: 4 Mix
+# QPM: 20, 40
+# SLO: 15, 20
 # =============================================================================
 
-name: "Scenario_III_Asymmetric_Load"
-description: "Asymmetric load: 2 short + 4 long with varied SLO (~70 QPM)"
+name: "Scenario_III_Heterogeneous_4Mix"
+description: "Heterogeneous workload with 4 Mix clients"
 
 clients:
   short:
-    count: 2
-    qpm: [10, 13]
-    qpm_ratio: 1
-    slo: [23, 25]           # 原来 19/21 * 1.2
-  
-  long:
-    count: 4
-    qpm: [12, 12, 12, 11]
-    qpm_ratio: 1
-    slo: [17, 18, 19, 22]   # 原来 14/15/16/18 * 1.2
-  
-  mix:
     count: 0
     qpm: []
     qpm_ratio: 1
     slo: []
+  
+  long:
+    count: 0
+    qpm: []
+    qpm_ratio: 1
+    slo: []
+  
+  mix:
+    count: 4
+    qpm: [20, 40, 20, 40]
+    qpm_ratio: 1
+    slo: [15, 20, 15, 20]
 
-# 总QPM: 70
+# 总QPM: 120

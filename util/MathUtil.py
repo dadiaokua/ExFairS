@@ -232,9 +232,7 @@ async def fairness_result(clients, exp_type, logger):
             client.que = GLOBAL_CONFIG.get('que_throughput', 0.3) * client.Norm_throughput - GLOBAL_CONFIG.get(
                 'que_latency', 0.4) * client.Norm_latency - GLOBAL_CONFIG.get('que_cost', 0.3) * client.Norm_cost
 
-    # Calculate multiple Jain's fairness indices
-    
-    # 1. SLO Violation Ratio-based Jain's Index (主要公平性指标)
+    # Calculate Jain's fairness index based on SLO violation ratio only
     # 各用户的 SLO 违约率越接近，说明调度越公平
     slo_violation_ratios = []
     for client in clients:
@@ -246,25 +244,13 @@ async def fairness_result(clients, exp_type, logger):
         slo_violation_ratios.append(slo_ratio)
     slo_jains_index = calculate_Jains_index(clients, exp_type, metric_name="slo_violation_ratio", values=slo_violation_ratios)
     
-    # 2. Token-based Jain's Index (input + 2*output)
-    token_values = []
-    for client in clients:
-        latest_result = client.results[-1]
-        token_value = latest_result["total_input_tokens"] + 2 * latest_result["total_output_tokens"]
-        token_values.append(token_value)
-    token_jains_index = calculate_Jains_index(clients, exp_type, metric_name="token_count", values=token_values)
-
-    # 3. SAFI - Service-Aware Fairness Index (辅助指标，基于 fairness_ratio)
-    safi_jains_index = calculate_Jains_index(clients, exp_type, metric_name="SAFI_fairness_ratio")
+    logger.info(f"[Fairness] JAIN Index (SLO Violation): {slo_jains_index:.4f}")
     
-    logger.info(f"[Fairness] JAIN Indices - SLO_Violation: {slo_jains_index:.4f}, Token: {token_jains_index:.4f}, SAFI: {safi_jains_index:.4f}")
-    
-    # Return all three indices as a dictionary along with service info
-    # 注意：safi 字段现在存储的是 SLO 违约率的 Jain Index（主要指标）
+    # 只返回 SLO 违约率的 Jain Index
     jains_indices = {
-        "safi": slo_jains_index,           # 主要指标：SLO 违约率公平性
-        "token": token_jains_index,        # Token 消耗公平性
-        "slo_violation": safi_jains_index  # 原 SAFI 指标（辅助）
+        "safi": slo_jains_index,           # 唯一指标：SLO 违约率公平性
+        "token": 0.0,                      # 不再计算
+        "slo_violation": 0.0               # 不再计算
     }
     
     return jains_indices, service

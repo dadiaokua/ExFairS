@@ -88,18 +88,19 @@ class ExperimentMonitor:
         self.results_file = f'tmp_result/tmp_fairness_result_{self.exp_type}_{GLOBAL_CONFIG.get("monitor_file_time")}.json'
 
         # 设置公平性调整策略映射
+        # 只有 ExFairS/LFS 系列策略才进行优先级调整
+        # 其他策略（Justitia, SLOGreedy）使用自己的调度逻辑，不需要额外调整
         self.fairness_strategies = {
             "LFS": is_fairness_LFSLLM,
             "ExFairS": is_fairness_LFSLLM,
-            # "VTC": is_fairness_VTC,
             "QUEUE_LFS": is_fairness_LFSLLM,
             "QUEUE_ExFairS": is_fairness_LFSLLM,
             "QUEUE_MINQUE": is_fairness_QUE,
-            # "QUEUE_VTC": is_fairness_VTC,
-            "Justitia": is_fairness_LFSLLM,  # Justitia uses similar fairness calculation
-            "SLOGreedy": is_fairness_LFSLLM,  # SLOGreedy uses similar fairness calculation
-            "QUEUE_Justitia": is_fairness_LFSLLM,
-            "QUEUE_SLOGreedy": is_fairness_LFSLLM,
+            # Justitia 和 SLOGreedy 不做额外的公平性调整，它们有自己的调度策略
+            # "Justitia": is_fairness_FCFS,
+            # "SLOGreedy": is_fairness_FCFS,
+            # "QUEUE_Justitia": is_fairness_FCFS,
+            # "QUEUE_SLOGreedy": is_fairness_FCFS,
         }
 
     def _setup_logger(self):

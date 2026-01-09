@@ -272,28 +272,25 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
         y_pos = total_s + max_val_s * 0.03
         ax.text(i, y_pos, label, ha='center', va='bottom', fontsize=8)
     
-    # 4. Jain Index (三个指标分组柱状图)
+    # 4. Jain Index (只显示 SLO 违约率公平性)
     ax = axes1[1, 0]
     x = np.arange(len(strategies))
-    width = 0.25
     
-    safi_values = [metrics[s]['jain_index'] for s in strategies]
-    token_values = [metrics[s].get('jain_index_token', 0) for s in strategies]
-    slo_values = [metrics[s].get('jain_index_slo', 0) for s in strategies]
+    jain_values = [metrics[s]['jain_index'] for s in strategies]
     
-    bars1 = ax.bar(x - width, safi_values, width, label='SAFI', color='#8da0cb', edgecolor='black', linewidth=0.5)
-    bars2 = ax.bar(x, token_values, width, label='Token', color='#fc8d62', edgecolor='black', linewidth=0.5)
-    bars3 = ax.bar(x + width, slo_values, width, label='SLO Vio', color='#66c2a5', edgecolor='black', linewidth=0.5)
+    bars = ax.bar(x, jain_values, color=colors, edgecolor='black', linewidth=0.5)
     
     ax.set_ylabel('Jain Index', fontsize=10)
-    ax.set_title('(d) Fairness (Jain Index) ↑', fontsize=10)
+    ax.set_title('(d) Fairness (SLO Violation) ↑', fontsize=10)
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=8)
-    ax.legend(fontsize=7, loc='lower right')
     
-    all_values = safi_values + token_values + slo_values
-    min_val = min(all_values) if all_values else 0
-    max_val = max(all_values) if all_values else 1
+    # 在柱子上方显示数值
+    for i, val in enumerate(jain_values):
+        ax.text(i, val + 0.01, f'{val:.3f}', ha='center', va='bottom', fontsize=8)
+    
+    min_val = min(jain_values) if jain_values else 0
+    max_val = max(jain_values) if jain_values else 1
     y_min = max(0, min_val - 0.1)
     y_max = min(1.05, max_val + 0.1)
     ax.set_ylim(y_min, y_max)
@@ -376,9 +373,7 @@ def print_summary_table(metrics: dict, scenario_name: str):
         ('Timeout Rate', 'timeout_rate', '%', '.1f'),
         ('Avg Latency (ms)', 'avg_latency_ms', '', '.0f'),
         ('P95 Latency (ms)', 'p95_latency_ms', '', '.0f'),
-        ('Jain Index (SAFI)', 'jain_index', '', '.4f'),
-        ('Jain Index (Token)', 'jain_index_token', '', '.4f'),
-        ('Jain Index (SLO Vio)', 'jain_index_slo', '', '.4f'),
+        ('Jain Index', 'jain_index', '', '.4f'),
         ('Goodput (success)', 'goodput', '', 'd'),
         ('Total Completed', 'total_completed', '', 'd'),
         ('Total Timeout', 'total_timeout', '', 'd'),
@@ -390,7 +385,7 @@ def print_summary_table(metrics: dict, scenario_name: str):
         values = [metrics[s].get(key, 0) for s in strategies]
         
         # 找出最佳值（根据指标类型）
-        if key in ['jain_index', 'jain_index_token', 'jain_index_slo', 'completion_rate', 'total_completed', 'goodput']:
+        if key in ['jain_index', 'completion_rate', 'total_completed', 'goodput']:
             best_idx = values.index(max(values)) if values else -1
         else:
             best_idx = values.index(min(values)) if values else -1
