@@ -40,11 +40,11 @@ show_help() {
   - ExFairS, Justitia, SLOGreedy, VTC, FCFS  (基础模式)
 
 可用场景:
-  - 1 或 scenario_I                 Balanced Load (2S+2L, QPM~38)
-  - 2 或 scenario_II                Imbalanced Load (2S+2L, QPM=10-65)
-  - 3 或 scenario_III               Heterogeneous (4 Mix, QPM=30-45)
-  - 4 或 scenario_IV                Heterogeneous (8 Mix, QPM=10-25)
-  - 5 或 scenario_V                 High Concurrency (20 Mix, QPM=5-10)
+  - 1 或 scenario_I                 Balanced Load (2S+2L, QPM~17-18)
+  - 2 或 scenario_II                Imbalanced Load (2S+2L, QPM=5-30)
+  - 3 或 scenario_III               Heterogeneous (4 Mix, QPM=14-21)
+  - 4 或 scenario_IV                Heterogeneous (8 Mix, QPM=5-12)
+  - 5 或 scenario_V                 High Concurrency (20 Mix, QPM=2-5)
 
 示例:
   # 默认运行（所有场景 + 所有队列策略）
@@ -107,12 +107,12 @@ map_scenarios() {
 }
 
 list_scenarios() {
-    echo "可用场景 (总QPM均为150):"
-    echo "  1 - scenario_I:   Balanced Load (2S+2L, QPM~38)"
-    echo "  2 - scenario_II:  Imbalanced Load (2S+2L, QPM=10-65)"
-    echo "  3 - scenario_III: Heterogeneous (4 Mix, QPM=30-45)"
-    echo "  4 - scenario_IV:  Heterogeneous (8 Mix, QPM=10-25)"
-    echo "  5 - scenario_V:   High Concurrency (20 Mix, QPM=5-10)"
+    echo "可用场景 (总QPM均为70):"
+    echo "  1 - scenario_I:   Balanced Load (2S+2L, QPM~17-18)"
+    echo "  2 - scenario_II:  Imbalanced Load (2S+2L, QPM=5-30)"
+    echo "  3 - scenario_III: Heterogeneous (4 Mix, QPM=14-21)"
+    echo "  4 - scenario_IV:  Heterogeneous (8 Mix, QPM=5-12)"
+    echo "  5 - scenario_V:   High Concurrency (20 Mix, QPM=2-5)"
 }
 
 list_strategies() {
