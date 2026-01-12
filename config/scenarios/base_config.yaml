@@ -17,11 +17,11 @@ experiment:
   # round_num: 每个策略运行的轮数
   # - 每轮会重新初始化客户端统计信息
   # - 增加轮数可以获得更稳定的平均结果
-  round_num: 10
+  round_num: 30
 
   # round_time: 每轮实验的持续时间（秒）
   # - 每轮结束后会等待所有请求完成
-  round_time: 100
+  round_time: 20
 
   # concurrency: 并发级别（保留参数，当前未使用）
   concurrency: 1
@@ -37,7 +37,7 @@ experiment:
 
   # sleep_time: 轮次之间的休息时间（秒）
   # - 用于等待系统稳定、避免资源争用
-  sleep_time: 5
+  sleep_time: 1
 
 # -----------------------------------------------------------------------------
 # QPM 动态变化配置 (Dynamic QPM Configuration)

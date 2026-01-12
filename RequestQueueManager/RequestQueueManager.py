@@ -104,7 +104,7 @@ class RequestQueueManager:
         # 部分优先级配置
         self.priority_insert_multiplier = 1  # 优先级倍数，优先级N可以往前插N*multiplier个位置
         self.max_priority_positions = 100  # 最大优先级插入位置限制
-        self.priority_delay_enabled = True  # 是否启用低优先级延迟
+        self.priority_delay_enabled = False  # 禁用低优先级延迟（会损害SLO）
         self.max_priority_delay = 10  # 最大延迟秒数
 
         # 优化：维护优先级分布的缓存，避免每次重新计算

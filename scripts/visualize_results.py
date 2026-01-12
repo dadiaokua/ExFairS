@@ -31,7 +31,8 @@ STRATEGY_NAMES = {
     'vtc': 'VTC',
     'exfairs': 'ExFairS',
     'justitia': 'Justitia',
-    'slo_greedy': 'SLO-Greedy'
+    'slo_greedy': 'SLO-Greedy',
+    'fcfs': 'FCFS'
 }
 # 学术风格配色（按图片配色）
 STRATEGY_COLORS = {
@@ -39,7 +40,8 @@ STRATEGY_COLORS = {
     'vtc': '#8fb78f',      # 草绿色
     'exfairs': '#8da0cb',  # 蓝紫色
     'justitia': '#e78ac3', # 粉紫色
-    'slo_greedy': '#a6d854' # 黄绿色
+    'slo_greedy': '#a6d854', # 黄绿色
+    'fcfs': '#fc8d62'      # 橙色
 }
 # 用户颜色（学术风格浅色）
 USER_COLORS = ['#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3', '#fdb462', '#b3de69', '#fccde5']
@@ -66,7 +68,7 @@ def find_results_in_run(run_dir: str, scenario_name: str) -> dict:
         return {}
     
     results_by_strategy = {}
-    strategies = ['rr', 'vtc', 'exfairs', 'justitia', 'slo_greedy']
+    strategies = ['rr', 'vtc', 'exfairs', 'justitia', 'slo_greedy', 'fcfs']
     
     for strategy in strategies:
         strategy_path = scenario_path / strategy
@@ -344,6 +346,104 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
     return output_path1
 
 
+def plot_safi_trends(scenario_name: str, run_dir: str, output_dir: str):
+    """
+    为每个策略生成 SAFI (fairness_ratio) 变化趋势图
+    
+    从 benchmark_results.json 中读取每个用户每轮的 fairness_ratio 数据，
+    绘制折线图展示公平性变化趋势。
+    """
+    if not HAS_MATPLOTLIB:
+        print("[SKIP] SAFI trends visualization skipped (matplotlib not available)")
+        return None
+    
+    strategies = ['exfairs', 'justitia', 'slo_greedy', 'vtc', 'fcfs', 'rr']
+    strategy_data = {}
+    
+    # 收集每个策略的数据
+    for strategy in strategies:
+        benchmark_file = Path(run_dir) / scenario_name / strategy / "benchmark_results.json"
+        if not benchmark_file.exists():
+            continue
+        
+        try:
+            with open(benchmark_file) as f:
+                data = json.load(f)
+            
+            # data 是 [users][rounds] 的结构
+            # 每个 data[user_idx][round_idx] 是一个 dict，包含 fairness_ratio, client_index 等
+            users_data = {}
+            for user_idx, user_rounds in enumerate(data):
+                if len(user_rounds) > 0:
+                    client_id = user_rounds[0].get('client_index', f'user_{user_idx}')
+                    fairness_ratios = [round_data.get('fairness_ratio', 0) for round_data in user_rounds]
+                    users_data[client_id] = fairness_ratios
+            
+            if users_data:
+                strategy_data[strategy] = users_data
+        except Exception as e:
+            print(f"[WARNING] Failed to load {benchmark_file}: {e}")
+    
+    if not strategy_data:
+        print("[WARNING] No SAFI data found for any strategy")
+        return None
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # 创建子图：每个策略一个子图
+    n_strategies = len(strategy_data)
+    if n_strategies == 0:
+        return None
+    
+    # 计算子图布局
+    n_cols = min(3, n_strategies)
+    n_rows = (n_strategies + n_cols - 1) // n_cols
+    
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6 * n_cols, 4 * n_rows))
+    fig.suptitle(f'SAFI (Fairness Ratio) Trends by User - {scenario_name}', fontsize=14, fontweight='bold')
+    
+    # 展平 axes 数组
+    if n_strategies == 1:
+        axes = [axes]
+    else:
+        axes = axes.flatten() if hasattr(axes, 'flatten') else [axes]
+    
+    # 为每个策略绘制子图
+    for idx, (strategy, users_data) in enumerate(strategy_data.items()):
+        ax = axes[idx]
+        
+        # 获取轮数
+        rounds = list(range(1, len(list(users_data.values())[0]) + 1))
+        
+        # 为每个用户绘制折线
+        for i, (client_id, fairness_ratios) in enumerate(users_data.items()):
+            color = USER_COLORS[i % len(USER_COLORS)]
+            ax.plot(rounds, fairness_ratios, marker='o', markersize=4, 
+                   label=client_id, color=color, linewidth=1.5)
+        
+        ax.set_xlabel('Round', fontsize=10)
+        ax.set_ylabel('Fairness Ratio (SAFI)', fontsize=10)
+        ax.set_title(f'{STRATEGY_NAMES.get(strategy, strategy)}', fontsize=11, fontweight='bold')
+        ax.legend(loc='upper right', fontsize=8, ncol=2)
+        ax.set_xlim(0.5, len(rounds) + 0.5)
+        ax.set_ylim(-0.05, 1.05)
+        ax.grid(True, alpha=0.3)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+    
+    # 隐藏多余的子图
+    for idx in range(len(strategy_data), len(axes)):
+        axes[idx].set_visible(False)
+    
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    output_path = os.path.join(output_dir, "safi_trends.png")
+    fig.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+    plt.close(fig)
+    print(f"[✓] SAFI trends chart saved to: {output_path}")
+    
+    return output_path
+
+
 def print_summary_table(metrics: dict, scenario_name: str):
     """
     打印汇总表格
@@ -483,7 +583,10 @@ def main():
     if HAS_MATPLOTLIB:
         chart_path = plot_comparison(metrics, args.scenario, output_dir, results)
         
-        if chart_path:
+        # 生成 SAFI 趋势图
+        safi_path = plot_safi_trends(args.scenario, run_dir, output_dir)
+        
+        if chart_path or safi_path:
             print(f"\n[✓] Visualization complete!")
     else:
         print("\n[!] Install matplotlib for charts: pip install matplotlib")
