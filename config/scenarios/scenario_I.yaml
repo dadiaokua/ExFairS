@@ -1,41 +1,29 @@
 # =============================================================================
-# Scenario I (Data1): Mix 2 Clients (QPM=20-60) & ♦️
+# Scenario I: Mix 2 Clients - QPM不均匀分布
 # =============================================================================
-# 配置: Mix 2 Clients (QPM不均匀分布)
-# 描述: 混合请求客户端，QPM差异大
-# 客户端: 2 Mix (mix_0, mix_1)
+# 客户端: 2 Mix
 # QPM: 20, 60 (不均匀分布，3倍差异)
 # SLO: 20s (统一)
-# 请求超时: 20s
-# 最大输出Token: 256
 # 总 QPM: 80
 # =============================================================================
 
 name: "Scenario_I_Mix2_Imbalanced"
-description: "Mix 2 Clients (QPM=20-60) with imbalanced distribution ♦️"
+description: "Mix 2 Clients with imbalanced QPM (20 vs 60)"
 
 # 覆盖基础配置
 experiment:
-  request_timeout: 20
-  max_output_tokens: 256
+  request_timeout: 25
+  max_output_tokens: 512
 
+# 客户端配置 - 实时监控模式使用此格式
 clients:
-  short:
-    count: 0
-    qpm: []
-    qpm_ratio: 1
-    slo: []
-  
-  long:
-    count: 0
-    qpm: []
-    qpm_ratio: 1
-    slo: []
-  
-  mix: 
-    count: 2
-    qpm: [20, 60]
-    qpm_ratio: 1
-    slo: [20, 20]
+  - type: Mix
+    count: 1
+    qpm: 20
+    slo: 20
+  - type: Mix
+    count: 1
+    qpm: 60
+    slo: 20
 
-# 总QPM: 80
+# 总 QPM: 80

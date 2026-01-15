@@ -1,35 +1,45 @@
 # =============================================================================
-# Scenario V: Mixed Heterogeneous (6 Mix)
+# Scenario V: Mix 6 Clients - 综合差异场景
 # =============================================================================
-# 配置: Mix 6 Clients
-# 描述: QPM 和 SLO 都有差异（综合场景）
-# 特点: 低QPM配紧SLO，高QPM配松SLO（最能体现ExFairS优势）
 # 客户端: 6 Mix
-# QPM: 8, 8, 12, 12, 16, 16 (2倍差异)
-# SLO: 10, 16, 10, 16, 10, 16 (1.6倍差异，稍微宽松)
+# QPM: 8, 10, 12, 14, 14, 14 (差异化分布)
+# SLO: 10s, 12s, 14s, 14s, 16s, 16s (差异化分布)
 # 总 QPM: 72
 # =============================================================================
 
-name: "Scenario_V_Mixed_Heterogeneous_6Mix"
-description: "Mixed heterogeneous workload with QPM and SLO variance"
+name: "Scenario_V_Mix6_Comprehensive"
+description: "Mix 6 Clients with comprehensive differences"
 
+# 覆盖基础配置
+experiment:
+  request_timeout: 20
+  max_output_tokens: 512
+
+# 客户端配置
 clients:
-  short:
-    count: 0
-    qpm: []
-    qpm_ratio: 1
-    slo: []
-  
-  long:
-    count: 0
-    qpm: []
-    qpm_ratio: 1
-    slo: []
-  
-  mix:
-    count: 6
-    qpm: [8, 8, 12, 12, 16, 16]
-    qpm_ratio: 1
-    slo: [10, 16, 10, 16, 10, 16]
+  - type: Mix
+    count: 1
+    qpm: 8
+    slo: 10
+  - type: Mix
+    count: 1
+    qpm: 10
+    slo: 12
+  - type: Mix
+    count: 1
+    qpm: 12
+    slo: 14
+  - type: Mix
+    count: 1
+    qpm: 14
+    slo: 14
+  - type: Mix
+    count: 1
+    qpm: 14
+    slo: 16
+  - type: Mix
+    count: 1
+    qpm: 14
+    slo: 16
 
-# 总QPM: 72
+# 总 QPM: 72

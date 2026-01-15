@@ -55,4 +55,9 @@ GLOBAL_CONFIG = {
     "priority_decay_rate": 0.95,      # 每轮优先级衰减系数（向0收敛），0.95比0.9衰减更慢
     "priority_amplifier": 15,         # 优先级放大系数（从10提升到15，让调整更显著）
     "fairness_window_size": 1,        # 时间窗大小（1=只使用前一轮数据计算公平性）
+    
+    # 实时监控模式配置
+    "realtime_mode": False,           # 是否启用实时监控模式
+    "realtime_duration": 600,         # 实时模式总持续时间（秒）
+    "realtime_monitor_interval": 60,  # 实时监控间隔（秒）
 }

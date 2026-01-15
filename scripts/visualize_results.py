@@ -346,21 +346,143 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
     return output_path1
 
 
-def plot_safi_trends(scenario_name: str, run_dir: str, output_dir: str):
+def plot_realtime_trends(scenario_name: str, run_dir: str, output_dir: str):
     """
-    为每个策略生成 SAFI (fairness_ratio) 变化趋势图
+    生成实时监控模式的趋势图
     
-    从 benchmark_results.json 中读取每个用户每轮的 fairness_ratio 数据，
-    绘制折线图展示公平性变化趋势。
+    从 results.json 中读取监控历史数据，绘制：
+    1. 各客户端 SLO 违约率变化趋势
+    2. Jain Index 变化趋势
+    3. Alpha 变化趋势
+    4. 各客户端优先级变化趋势
     """
     if not HAS_MATPLOTLIB:
-        print("[SKIP] SAFI trends visualization skipped (matplotlib not available)")
+        print("[SKIP] Realtime trends visualization skipped (matplotlib not available)")
         return None
     
     strategies = ['exfairs', 'justitia', 'slo_greedy', 'vtc', 'fcfs', 'rr']
     strategy_data = {}
     
     # 收集每个策略的数据
+    for strategy in strategies:
+        result_file = Path(run_dir) / scenario_name / strategy / "results.json"
+        if not result_file.exists():
+            continue
+        
+        try:
+            with open(result_file) as f:
+                data = json.load(f)
+            
+            # 检查是否有监控历史数据
+            history = data.get('history', [])
+            if not history:
+                # 尝试旧格式
+                continue
+            
+            strategy_data[strategy] = {
+                'history': history,
+                'config': data.get('config', {})
+            }
+        except Exception as e:
+            print(f"[WARNING] Failed to load {result_file}: {e}")
+    
+    if not strategy_data:
+        # 尝试加载旧格式的 benchmark_results.json
+        return plot_safi_trends_legacy(scenario_name, run_dir, output_dir)
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # 为每个策略生成趋势图
+    for strategy, data in strategy_data.items():
+        history = data['history']
+        
+        if not history:
+            continue
+        
+        # 创建 2x2 子图
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+        fig.suptitle(f'Realtime Monitor Trends - {scenario_name} - {STRATEGY_NAMES.get(strategy, strategy)}', 
+                    fontsize=14, fontweight='bold')
+        
+        # 提取时间序列
+        monitor_points = [h['monitor_count'] for h in history]
+        
+        # 1. SLO 违约率趋势
+        ax = axes[0, 0]
+        for i, cid in enumerate(history[0].get('client_stats', {}).keys()):
+            slo_rates = [h['client_stats'].get(cid, {}).get('slo_violation_rate', 0) * 100 for h in history]
+            color = USER_COLORS[i % len(USER_COLORS)]
+            ax.plot(monitor_points, slo_rates, marker='o', markersize=4, 
+                   label=cid, color=color, linewidth=1.5)
+        ax.set_xlabel('Monitor Point', fontsize=10)
+        ax.set_ylabel('SLO Violation Rate (%)', fontsize=10)
+        ax.set_title('(a) SLO Violation Rate by Client', fontsize=11)
+        ax.legend(loc='upper right', fontsize=8, ncol=2)
+        ax.grid(True, alpha=0.3)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        
+        # 2. Jain Index 趋势
+        ax = axes[0, 1]
+        jain_values = [h.get('jain_index', 0) for h in history]
+        ax.plot(monitor_points, jain_values, marker='s', markersize=6, 
+               color='#8da0cb', linewidth=2, label='Jain Index')
+        ax.set_xlabel('Monitor Point', fontsize=10)
+        ax.set_ylabel('Jain Index', fontsize=10)
+        ax.set_title('(b) Fairness (Jain Index) Trend', fontsize=11)
+        ax.set_ylim(0, 1.05)
+        ax.grid(True, alpha=0.3)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        
+        # 3. Alpha 变化趋势（仅 ExFairS）
+        ax = axes[1, 0]
+        if 'alpha' in history[0]:
+            alpha_values = [h.get('alpha', 0.8) for h in history]
+            ax.plot(monitor_points, alpha_values, marker='^', markersize=6, 
+                   color='#e78ac3', linewidth=2, label='Alpha')
+            ax.set_ylabel('Alpha', fontsize=10)
+            ax.set_ylim(0, 1)
+        else:
+            ax.text(0.5, 0.5, 'Alpha tracking\nnot available', 
+                   ha='center', va='center', fontsize=12, transform=ax.transAxes)
+        ax.set_xlabel('Monitor Point', fontsize=10)
+        ax.set_title('(c) Alpha Adjustment', fontsize=11)
+        ax.grid(True, alpha=0.3)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        
+        # 4. 优先级变化趋势
+        ax = axes[1, 1]
+        for i, cid in enumerate(history[0].get('client_stats', {}).keys()):
+            priorities = [h['client_stats'].get(cid, {}).get('priority', 0) for h in history]
+            color = USER_COLORS[i % len(USER_COLORS)]
+            ax.plot(monitor_points, priorities, marker='o', markersize=4, 
+                   label=cid, color=color, linewidth=1.5)
+        ax.set_xlabel('Monitor Point', fontsize=10)
+        ax.set_ylabel('Priority', fontsize=10)
+        ax.set_title('(d) Priority Changes by Client', fontsize=11)
+        ax.legend(loc='upper right', fontsize=8, ncol=2)
+        ax.grid(True, alpha=0.3)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        
+        plt.tight_layout(rect=[0, 0, 1, 0.95])
+        output_path = os.path.join(output_dir, f"realtime_trends_{strategy}.png")
+        fig.savefig(output_path, dpi=200, bbox_inches='tight', facecolor='white')
+        plt.close(fig)
+        print(f"[✓] Realtime trends chart saved to: {output_path}")
+    
+    return output_dir
+
+
+def plot_safi_trends_legacy(scenario_name: str, run_dir: str, output_dir: str):
+    """
+    旧格式兼容：从 benchmark_results.json 中读取 SAFI 数据
+    """
+    strategies = ['exfairs', 'justitia', 'slo_greedy', 'vtc', 'fcfs', 'rr']
+    strategy_data = {}
+    
     for strategy in strategies:
         benchmark_file = Path(run_dir) / scenario_name / strategy / "benchmark_results.json"
         if not benchmark_file.exists():
@@ -370,8 +492,6 @@ def plot_safi_trends(scenario_name: str, run_dir: str, output_dir: str):
             with open(benchmark_file) as f:
                 data = json.load(f)
             
-            # data 是 [users][rounds] 的结构
-            # 每个 data[user_idx][round_idx] 是一个 dict，包含 fairness_ratio, client_index 等
             users_data = {}
             for user_idx, user_rounds in enumerate(data):
                 if len(user_rounds) > 0:
@@ -390,39 +510,29 @@ def plot_safi_trends(scenario_name: str, run_dir: str, output_dir: str):
     
     os.makedirs(output_dir, exist_ok=True)
     
-    # 创建子图：每个策略一个子图
     n_strategies = len(strategy_data)
-    if n_strategies == 0:
-        return None
-    
-    # 计算子图布局
     n_cols = min(3, n_strategies)
     n_rows = (n_strategies + n_cols - 1) // n_cols
     
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(6 * n_cols, 4 * n_rows))
-    fig.suptitle(f'SAFI (Fairness Ratio) Trends by User - {scenario_name}', fontsize=14, fontweight='bold')
+    fig.suptitle(f'SAFI (Fairness Ratio) Trends - {scenario_name}', fontsize=14, fontweight='bold')
     
-    # 展平 axes 数组
     if n_strategies == 1:
         axes = [axes]
     else:
         axes = axes.flatten() if hasattr(axes, 'flatten') else [axes]
     
-    # 为每个策略绘制子图
     for idx, (strategy, users_data) in enumerate(strategy_data.items()):
         ax = axes[idx]
-        
-        # 获取轮数
         rounds = list(range(1, len(list(users_data.values())[0]) + 1))
         
-        # 为每个用户绘制折线
         for i, (client_id, fairness_ratios) in enumerate(users_data.items()):
             color = USER_COLORS[i % len(USER_COLORS)]
             ax.plot(rounds, fairness_ratios, marker='o', markersize=4, 
                    label=client_id, color=color, linewidth=1.5)
         
         ax.set_xlabel('Round', fontsize=10)
-        ax.set_ylabel('Fairness Ratio (SAFI)', fontsize=10)
+        ax.set_ylabel('Fairness Ratio', fontsize=10)
         ax.set_title(f'{STRATEGY_NAMES.get(strategy, strategy)}', fontsize=11, fontweight='bold')
         ax.legend(loc='upper right', fontsize=8, ncol=2)
         ax.set_xlim(0.5, len(rounds) + 0.5)
@@ -431,7 +541,6 @@ def plot_safi_trends(scenario_name: str, run_dir: str, output_dir: str):
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
     
-    # 隐藏多余的子图
     for idx in range(len(strategy_data), len(axes)):
         axes[idx].set_visible(False)
     
@@ -583,10 +692,10 @@ def main():
     if HAS_MATPLOTLIB:
         chart_path = plot_comparison(metrics, args.scenario, output_dir, results)
         
-        # 生成 SAFI 趋势图
-        safi_path = plot_safi_trends(args.scenario, run_dir, output_dir)
+        # 生成实时监控趋势图（兼容旧格式）
+        trends_path = plot_realtime_trends(args.scenario, run_dir, output_dir)
         
-        if chart_path or safi_path:
+        if chart_path or trends_path:
             print(f"\n[✓] Visualization complete!")
     else:
         print("\n[!] Install matplotlib for charts: pip install matplotlib")

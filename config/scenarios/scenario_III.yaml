@@ -1,41 +1,37 @@
 # =============================================================================
-# Scenario III (Data3): Mix 4 Clients (QPM=15-30) & ♣️
+# Scenario III: Mix 4 Clients - QPM递增分布
 # =============================================================================
-# 配置: Mix 4 Clients (QPM均匀分布，SLO统一)
-# 描述: 混合请求客户端，QPM递增
-# 客户端: 4 Mix (mix_0 ~ mix_3)
-# QPM: 15, 20, 25, 30 (均匀递增)
+# 客户端: 4 Mix
+# QPM: 15, 20, 25, 30 (递增分布)
 # SLO: 15s (统一)
-# 请求超时: 20s
-# 最大输出Token: 256
 # 总 QPM: 90
 # =============================================================================
 
 name: "Scenario_III_Mix4_QPM_Gradient"
-description: "Mix 4 Clients (QPM=15-30 gradient, SLO=15) ♣️"
+description: "Mix 4 Clients with gradient QPM (15-30)"
 
 # 覆盖基础配置
 experiment:
   request_timeout: 20
-  max_output_tokens: 256
+  max_output_tokens: 512
 
+# 客户端配置
 clients:
-  short:
-    count: 0
-    qpm: []
-    qpm_ratio: 1
-    slo: []
-  
-  long:
-    count: 0
-    qpm: []
-    qpm_ratio: 1
-    slo: []
-  
-  mix:
-    count: 4
-    qpm: [15, 20, 25, 30]
-    qpm_ratio: 1
-    slo: [15, 15, 15, 15]
+  - type: Mix
+    count: 1
+    qpm: 15
+    slo: 15
+  - type: Mix
+    count: 1
+    qpm: 20
+    slo: 15
+  - type: Mix
+    count: 1
+    qpm: 25
+    slo: 15
+  - type: Mix
+    count: 1
+    qpm: 30
+    slo: 15
 
-# 总QPM: 90
+# 总 QPM: 90

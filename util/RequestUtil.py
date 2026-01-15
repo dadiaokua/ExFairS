@@ -325,13 +325,23 @@ async def collect_single_response(queue_manager, client_id, request_info, global
         # 计算动态超时时间
         current_elapsed = time.time() - global_start_time
         remaining_time = experiment.round_time - current_elapsed
-        timeout = min(1000, max(5, remaining_time * 0.8))  # 使用剩余时间的80%作为超时
+        # 使用配置的 request_timeout 作为上限，剩余时间的80%作为超时
+        max_timeout = getattr(experiment, 'request_timeout', 120)
+        timeout = min(max_timeout, max(5, remaining_time * 0.8))
         
         result = await queue_manager.get_response(client_id, timeout=timeout)
         
         if result:
             request_info["status"] = "completed"
             request_info["end_time"] = time.time()
+            
+            # 【实时监控】如果有实时监控器，立即上报结果
+            if hasattr(experiment, 'client') and hasattr(experiment.client, 'realtime_monitor'):
+                monitor = experiment.client.realtime_monitor
+                if monitor:
+                    main_client_id = getattr(experiment.client, 'client_id', 'unknown_client')
+                    monitor.update_client_stats(main_client_id, result)
+            
             return result, request_info
         else:
             request_info["status"] = "failed"
@@ -849,6 +859,13 @@ async def process_request(openai, experiment, request, worker_id, results, semap
                 # 原子性地更新token计数
                 new_total = tokens_counter.add(output_tokens)
                 results.append(result)
+                
+                # 【实时监控】如果有实时监控器，立即上报结果
+                if hasattr(experiment, 'client') and hasattr(experiment.client, 'realtime_monitor'):
+                    monitor = experiment.client.realtime_monitor
+                    if monitor:
+                        main_client_id = getattr(experiment.client, 'client_id', 'unknown_client')
+                        monitor.update_client_stats(main_client_id, result)
 
         except Exception as e:
             logging.error(
