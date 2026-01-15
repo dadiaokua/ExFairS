@@ -10,6 +10,7 @@ from functools import wraps
 from config.Config import GLOBAL_CONFIG
 from util.FileSaveUtil import save_results
 from util.MathUtil import fairness_result, is_fairness_LFSLLM, is_fairness_QUE, is_fairness_FCFS
+from util.BaseUtil import decay_priorities
 
 def timing_decorator(func):
     """装饰器：用于测量函数执行时间"""
@@ -329,6 +330,11 @@ class ExperimentMonitor:
     async def _reset_clients(self):
         """重置所有客户端"""
         self.logger.info("Notifying clients of completion...")
+        
+        # 【改进2】每轮结束时进行优先级衰减，避免历史粘滞
+        if "LFS" in self.exp_type or "ExFairS" in self.exp_type:
+            decay_priorities(self.clients)
+        
         for i, client in enumerate(self.clients):
             self.logger.info(f"Resetting client {i + 1}/{len(self.clients)}")
             client.exchange_Resources_Times = 0

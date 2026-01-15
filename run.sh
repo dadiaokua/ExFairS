@@ -35,16 +35,15 @@ show_help() {
   - QUEUE_SLOGreedy            队列模式 - SLO违约率贪心调度
   - QUEUE_VTC                  队列模式 - VTC调度
   - QUEUE_FCFS                 队列模式 - FCFS调度
-  - QUEUE_ROUND_ROBIN          队列模式 - 轮询调度
   - QUEUE_MINQUE               队列模式 - QuE调度
   - ExFairS, Justitia, SLOGreedy, VTC, FCFS  (基础模式)
 
 可用场景:
-  - 1 或 scenario_I                 Balanced Load (2S+2L, QPM~17-18)
-  - 2 或 scenario_II                Imbalanced Load (2S+2L, QPM=5-30)
-  - 3 或 scenario_III               Heterogeneous (4 Mix, QPM=14-21)
-  - 4 或 scenario_IV                Heterogeneous (8 Mix, QPM=5-12)
-  - 5 或 scenario_V                 High Concurrency (20 Mix, QPM=2-5)
+  - 1 或 scenario_I                 Data1: Mix2 ♦️ (QPM=20-60不均, SLO=20s, 总QPM=80)
+  - 2 或 scenario_II                Data2: Mix2 ♣️ (QPM=40均匀, SLO=15-20s, 总QPM=80)
+  - 3 或 scenario_III               Data3: Mix4 ♣️ (QPM=15-30递增, SLO=15s, 总QPM=90)
+  - 4 或 scenario_IV                Data4: Mix4 ♣️ (QPM=20均匀, SLO=10-20s, 总QPM=80)
+  - 5 或 scenario_V                 综合差异 (6 Mix, QPM差异8-16, SLO差异10-16, 总QPM=72)
 
 示例:
   # 默认运行（所有场景 + 所有队列策略）
@@ -67,8 +66,8 @@ show_help() {
   策略: QUEUE_ExFairS,QUEUE_Justitia,QUEUE_SLOGreedy,QUEUE_VTC,QUEUE_FCFS
   
   💡 不加任何参数运行 $0 将按场景分组依次运行：
-     场景1 → 所有策略 → 可视化 → 等待30秒
-     场景2 → 所有策略 → 可视化 → 等待30秒
+     场景1 → 所有策略 → 可视化 → 等待10秒
+     场景2 → 所有策略 → 可视化 → 等待10秒
      ...
 
 查询选项:
@@ -107,12 +106,12 @@ map_scenarios() {
 }
 
 list_scenarios() {
-    echo "可用场景 (总QPM均为70):"
-    echo "  1 - scenario_I:   Balanced Load (2S+2L, QPM~17-18)"
-    echo "  2 - scenario_II:  Imbalanced Load (2S+2L, QPM=5-30)"
-    echo "  3 - scenario_III: Heterogeneous (4 Mix, QPM=14-21)"
-    echo "  4 - scenario_IV:  Heterogeneous (8 Mix, QPM=5-12)"
-    echo "  5 - scenario_V:   High Concurrency (20 Mix, QPM=2-5)"
+    echo "可用场景:"
+    echo "  1 - scenario_I:   Data1: Mix2 ♦️ (QPM=20-60不均, SLO=20s, 总QPM=80)"
+    echo "  2 - scenario_II:  Data2: Mix2 ♣️ (QPM=40均匀, SLO=15-20s, 总QPM=80)"
+    echo "  3 - scenario_III: Data3: Mix4 ♣️ (QPM=15-30递增, SLO=15s, 总QPM=90)"
+    echo "  4 - scenario_IV:  Data4: Mix4 ♣️ (QPM=20均匀, SLO=10-20s, 总QPM=80)"
+    echo "  5 - scenario_V:   综合差异 (6 Mix, QPM差异8-16, SLO差异10-16, 总QPM=72)"
 }
 
 list_strategies() {
@@ -124,7 +123,6 @@ list_strategies() {
     - QUEUE_SLOGreedy            SLO违约率贪心
     - QUEUE_VTC                  可变Token积分
     - QUEUE_FCFS                 先到先服务
-    - QUEUE_ROUND_ROBIN          轮询调度
     - QUEUE_MINQUE               QuE调度
 
   基础模式:
@@ -272,8 +270,8 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
         
         # 计算单次实验预期耗时 = round_num * (round_time + sleep_time) + 额外开销(约30秒)
         EXPECTED_EXP_TIME=$((ROUND_NUM * (ROUND_TIME + SLEEP_TIME) + 30))
-        EXPECTED_SCENARIO_TIME=$((EXPECTED_EXP_TIME * ${#EXP_ARRAY[@]} + 30 * (${#EXP_ARRAY[@]} - 1)))  # 策略间等待30秒
-        EXPECTED_TOTAL_TIME=$((EXPECTED_SCENARIO_TIME * ${#SCENARIO_ARRAY[@]} + 30 * (${#SCENARIO_ARRAY[@]} - 1)))  # 场景间等待30秒
+        EXPECTED_SCENARIO_TIME=$((EXPECTED_EXP_TIME * ${#EXP_ARRAY[@]} + 10 * (${#EXP_ARRAY[@]} - 1)))  # 策略间等待10秒
+        EXPECTED_TOTAL_TIME=$((EXPECTED_SCENARIO_TIME * ${#SCENARIO_ARRAY[@]} + 10 * (${#SCENARIO_ARRAY[@]} - 1)))  # 场景间等待10秒
         
         echo "📋 配置信息:" | tee -a "$LOG_FILE"
         echo "   轮数: $ROUND_NUM, 每轮: ${ROUND_TIME}s, 休息: ${SLEEP_TIME}s" | tee -a "$LOG_FILE"
@@ -341,8 +339,8 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
                 fi
             done
             if [[ $((exp_index + 1)) -lt ${#EXP_ARRAY[@]} ]]; then
-                echo "⏱️  等待 30 秒..." | tee -a "$LOG_FILE"
-                sleep 30
+                echo "⏱️  等待 10 秒..." | tee -a "$LOG_FILE"
+                sleep 10
             fi
         done
         
@@ -386,8 +384,8 @@ if [[ "$BATCH_MODE" == true ]] || { [[ -n "$EXPERIMENTS" ]] && [[ -z "$SINGLE_SC
             fi
         done
         if [[ $((scenario_index + 1)) -lt ${#SCENARIO_ARRAY[@]} ]]; then
-            echo "⏸️  场景间隔，等待 30 秒..." | tee -a "$LOG_FILE"
-            sleep 30
+            echo "⏸️  场景间隔，等待 10 秒..." | tee -a "$LOG_FILE"
+            sleep 10
         fi
     done
     

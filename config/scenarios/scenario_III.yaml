@@ -1,16 +1,23 @@
 # =============================================================================
-# Scenario III: Heterogeneous (4 Mix)
+# Scenario III (Data3): Mix 4 Clients (QPM=15-30) & ♣️
 # =============================================================================
-# 配置: Mix 4 Clients (QPM=17-25)
-# 描述: Heterogeneous
-# 客户端: 4 Mix
-# QPM: 17, 25 (原×1.2)
-# SLO: 12, 16 (原×0.8)
-# 总 QPM: 84
+# 配置: Mix 4 Clients (QPM均匀分布，SLO统一)
+# 描述: 混合请求客户端，QPM递增
+# 客户端: 4 Mix (mix_0 ~ mix_3)
+# QPM: 15, 20, 25, 30 (均匀递增)
+# SLO: 15s (统一)
+# 请求超时: 20s
+# 最大输出Token: 256
+# 总 QPM: 90
 # =============================================================================
 
-name: "Scenario_III_Heterogeneous_4Mix"
-description: "Heterogeneous workload with 4 Mix clients"
+name: "Scenario_III_Mix4_QPM_Gradient"
+description: "Mix 4 Clients (QPM=15-30 gradient, SLO=15) ♣️"
+
+# 覆盖基础配置
+experiment:
+  request_timeout: 20
+  max_output_tokens: 256
 
 clients:
   short:
@@ -27,8 +34,8 @@ clients:
   
   mix:
     count: 4
-    qpm: [17, 25, 17, 25]
+    qpm: [15, 20, 25, 30]
     qpm_ratio: 1
-    slo: [12, 16, 12, 16]
+    slo: [15, 15, 15, 15]
 
-# 总QPM: 84
+# 总QPM: 90

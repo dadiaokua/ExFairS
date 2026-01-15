@@ -1,16 +1,17 @@
 # =============================================================================
-# Scenario V: High Concurrency (8 Mix, Varied QPM)
+# Scenario V: Mixed Heterogeneous (6 Mix)
 # =============================================================================
-# 配置: Mix 8 Clients (QPM=8-14)
-# 描述: High Concurrency
-# 客户端: 8 Mix
-# QPM: 8, 10, 11, 13 (调整后保证最低QPM足够)
-# SLO: 6, 10, 12, 16 (原×0.8)
-# 总 QPM: 84
+# 配置: Mix 6 Clients
+# 描述: QPM 和 SLO 都有差异（综合场景）
+# 特点: 低QPM配紧SLO，高QPM配松SLO（最能体现ExFairS优势）
+# 客户端: 6 Mix
+# QPM: 8, 8, 12, 12, 16, 16 (2倍差异)
+# SLO: 10, 16, 10, 16, 10, 16 (1.6倍差异，稍微宽松)
+# 总 QPM: 72
 # =============================================================================
 
-name: "Scenario_V_High_Concurrency_8Mix"
-description: "High Concurrency with 8 Mix clients, varied QPM"
+name: "Scenario_V_Mixed_Heterogeneous_6Mix"
+description: "Mixed heterogeneous workload with QPM and SLO variance"
 
 clients:
   short:
@@ -26,9 +27,9 @@ clients:
     slo: []
   
   mix:
-    count: 8
-    qpm: [8, 10, 11, 13, 9, 10, 11, 12]
+    count: 6
+    qpm: [8, 8, 12, 12, 16, 16]
     qpm_ratio: 1
-    slo: [6, 10, 12, 16, 6, 10, 12, 16]
+    slo: [10, 16, 10, 16, 10, 16]
 
-# 总QPM: 84
+# 总QPM: 72

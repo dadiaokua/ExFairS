@@ -7,8 +7,15 @@ def get_monitor_file_time():
 GLOBAL_CONFIG = {
     "latency_slo": 5,
     "output_tokens": 512,
-    "alpha": 0.8,                       # SLO 违约率在公平性计算中的权重
+    "alpha": 0.8,                       # SLO 违约率在公平性计算中的权重（静态时使用）
     "fairness_ratio_exfairs": 0.05,    # ExFairS 触发阈值（差值>此值才调整）
+    
+    # 动态 α 配置（焦虑驱动型）
+    "dynamic_alpha_enabled": True,      # 是否启用动态 α
+    "alpha_min": 0.2,                   # 最小 α（关注资源公平）
+    "alpha_max": 0.9,                   # 最大 α（关注 SLO）
+    "alpha_k": 10.0,                    # Sigmoid 陡峭度
+    "alpha_theta": 0.1,                 # SLO 违约率警戒线（10%）
     "fairness_ratio_VTC": 0.5,         # VTC 策略触发阈值
     'ADJUST_SENSITIVITY': 1.5,         # 优先级调整灵敏度（越大调整幅度越大）
     "whether_fairness": 1,
@@ -41,4 +48,11 @@ GLOBAL_CONFIG = {
     "que_throughput": 0.3,
     "que_latency": 0.4,
     "que_cost": 0.3,
+    
+    # ExFairS 优先级控制参数
+    "priority_min": -50,              # 优先级下界（最高优先级）
+    "priority_max": 50,               # 优先级上界（最低优先级）
+    "priority_decay_rate": 0.95,      # 每轮优先级衰减系数（向0收敛），0.95比0.9衰减更慢
+    "priority_amplifier": 15,         # 优先级放大系数（从10提升到15，让调整更显著）
+    "fairness_window_size": 1,        # 时间窗大小（1=只使用前一轮数据计算公平性）
 }

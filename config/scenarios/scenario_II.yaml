@@ -1,34 +1,41 @@
 # =============================================================================
-# Scenario II: Imbalanced Load（不平衡负载场景）
+# Scenario II (Data2): Mix 2 Clients (QPM=40均匀, SLO差异) & ♣️
 # =============================================================================
-# 配置: S+L Clients (QPM=12-30)
-# 描述: Imbalanced Load
-# 客户端: 4 (2S+2L)
-# QPM: 12, 30 (比例 3:7, 原×1.2)
-# SLO: 16 (原×0.8)
-# 总 QPM: 84
+# 配置: Mix 2 Clients (QPM均匀，SLO差异)
+# 描述: 混合请求客户端，QPM相同但SLO不同
+# 客户端: 2 Mix (mix_0, mix_1)
+# QPM: 40, 40 (均匀分布)
+# SLO: 15s, 20s (SLO差异)
+# 请求超时: 20s
+# 最大输出Token: 256
+# 总 QPM: 80
 # =============================================================================
 
-name: "Scenario_II_Imbalanced_Load"
-description: "Imbalanced Load with polarized QPM (12 vs 30, ratio 3:7)"
+name: "Scenario_II_Mix2_SLO_Diff"
+description: "Mix 2 Clients (QPM=40 uniform, SLO=15-20) ♣️"
+
+# 覆盖基础配置
+experiment:
+  request_timeout: 20
+  max_output_tokens: 256
 
 clients:
   short:
-    count: 2
-    qpm: [12, 30]
-    qpm_ratio: 1
-    slo: [16, 16]
-  
-  long:
-    count: 2
-    qpm: [12, 30]
-    qpm_ratio: 1
-    slo: [16, 16]
-  
-  mix:
     count: 0
     qpm: []
     qpm_ratio: 1
     slo: []
+  
+  long:
+    count: 0
+    qpm: []
+    qpm_ratio: 1
+    slo: []
+  
+  mix:
+    count: 2
+    qpm: [40, 40]
+    qpm_ratio: 1
+    slo: [15, 20]
 
-# 总QPM: 84
+# 总QPM: 80

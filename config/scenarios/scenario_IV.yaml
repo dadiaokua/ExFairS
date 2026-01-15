@@ -1,16 +1,23 @@
 # =============================================================================
-# Scenario IV: Heterogeneous (8 Mix)
+# Scenario IV (Data4): Mix 4 Clients (QPM=20均匀, SLO差异) & ♣️
 # =============================================================================
-# 配置: Mix 8 Clients (QPM=6-14)
-# 描述: Heterogeneous
-# 客户端: 8 Mix
-# QPM: 6, 8, 11, 14 (原×1.2)
-# SLO: 8, 12, 16, 20 (原×0.8)
-# 总 QPM: 84
+# 配置: Mix 4 Clients (QPM均匀，SLO差异大)
+# 描述: 混合请求客户端，QPM相同但SLO差异大
+# 客户端: 4 Mix (mix_0 ~ mix_3)
+# QPM: 20, 20, 20, 20 (均匀)
+# SLO: 10, 12, 15, 20s (SLO差异大)
+# 请求超时: 20s
+# 最大输出Token: 256
+# 总 QPM: 80
 # =============================================================================
 
-name: "Scenario_IV_Heterogeneous_8Mix"
-description: "Heterogeneous workload with 8 Mix clients"
+name: "Scenario_IV_Mix4_SLO_Gradient"
+description: "Mix 4 Clients (QPM=20 uniform, SLO=10-20 gradient) ♣️"
+
+# 覆盖基础配置
+experiment:
+  request_timeout: 20
+  max_output_tokens: 256
 
 clients:
   short:
@@ -26,9 +33,9 @@ clients:
     slo: []
   
   mix:
-    count: 8
-    qpm: [6, 8, 11, 14, 8, 11, 11, 15]
+    count: 4
+    qpm: [20,20,20,20]
     qpm_ratio: 1
-    slo: [8, 12, 16, 20, 8, 12, 16, 20]
+    slo: [10, 12, 15, 20]
 
-# 总QPM: 84
+# 总QPM: 80

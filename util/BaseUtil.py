@@ -130,6 +130,46 @@ def get_average_success_rate(clients):
     return avg_rate
 
 
+def clip_priority(priority):
+    """
+    【改进1】优先级边界限制
+    将优先级裁剪到 [priority_min, priority_max] 范围内，防止极端值
+    """
+    priority_min = GLOBAL_CONFIG.get("priority_min", -50)
+    priority_max = GLOBAL_CONFIG.get("priority_max", 50)
+    return max(priority_min, min(priority_max, priority))
+
+
+def decay_priorities(clients):
+    """
+    【改进2】优先级衰减/回正
+    每轮结束后让所有客户端的优先级向 0 收敛，避免历史粘滞
+    
+    衰减公式：new_priority = old_priority * decay_rate
+    例如：decay_rate=0.9 时，优先级 100 → 90 → 81 → 73 → ...
+    
+    Args:
+        clients: 客户端列表
+    """
+    decay_rate = GLOBAL_CONFIG.get("priority_decay_rate", 0.9)
+    
+    decayed_clients = []
+    for client in clients:
+        if hasattr(client, 'priority') and client.priority != 0:
+            old_priority = client.priority
+            # 向 0 衰减
+            new_priority = int(old_priority * decay_rate)
+            # 如果衰减后绝对值小于 1，直接归零
+            if abs(new_priority) < 1:
+                new_priority = 0
+            client.priority = new_priority
+            if old_priority != new_priority:
+                decayed_clients.append(f"{client.client_id}: {old_priority} -> {new_priority}")
+    
+    if decayed_clients:
+        print(f"[ExFairS] Priority decay (rate={decay_rate}): {', '.join(decayed_clients)}")
+
+
 def adjust_resources(client_low_fairness_ratio, client_high_fairness_ratio, delta, avg_success_rate):
     """
     统一的资源调整策略 - ExFairS 核心
@@ -139,10 +179,13 @@ def adjust_resources(client_low_fairness_ratio, client_high_fairness_ratio, delt
     - fairness_ratio 低的客户端 = 体验好 → 降低优先级，让出资源
     
     优先级规则：数字越小优先级越高（负数 > 0 > 正数）
+    
+    改进：
+    - 【改进1】优先级边界限制：防止极端插队
+    - 【改进3】小步调整：使用可配置的放大系数，减缓累积速度
     """
-    # 基础优先级变化量 = delta * 放大系数
-    # delta 通常在 0.05-0.5 之间，乘以 20 得到 1-10 的优先级变化
-    priority_amplifier = 20  # 放大系数，让优先级变化更显著
+    # 【改进3】使用可配置的放大系数（默认10，原值20）
+    priority_amplifier = GLOBAL_CONFIG.get("priority_amplifier", 10)
     priority_changes = max(1, int(delta * priority_amplifier))  # 至少变化 1
     
     # 根据 SLO 违约情况进一步调整
@@ -157,15 +200,23 @@ def adjust_resources(client_low_fairness_ratio, client_high_fairness_ratio, delt
     
     # 公平性高的客户端（体验差）→ 获得更高优先级（更小的数字）
     old_high_priority = client_high_fairness_ratio.priority
-    client_high_fairness_ratio.priority = client_high_fairness_ratio.priority - priority_changes
+    new_high_priority = client_high_fairness_ratio.priority - priority_changes
+    # 【改进1】应用优先级边界限制
+    client_high_fairness_ratio.priority = clip_priority(new_high_priority)
     
     # 公平性低的客户端（体验好）→ 获得更低优先级（更大的数字）
     old_low_priority = client_low_fairness_ratio.priority
-    client_low_fairness_ratio.priority = client_low_fairness_ratio.priority + priority_changes
+    new_low_priority = client_low_fairness_ratio.priority + priority_changes
+    # 【改进1】应用优先级边界限制
+    client_low_fairness_ratio.priority = clip_priority(new_low_priority)
+    
+    # 打印调整信息（包含是否被裁剪的提示）
+    high_clipped = " [CLIPPED]" if client_high_fairness_ratio.priority != new_high_priority else ""
+    low_clipped = " [CLIPPED]" if client_low_fairness_ratio.priority != new_low_priority else ""
     
     print(f"[ExFairS] Priority adjustment: "
-          f"client_high({client_high_fairness_ratio.client_id}): {old_high_priority} -> {client_high_fairness_ratio.priority}, "
-          f"client_low({client_low_fairness_ratio.client_id}): {old_low_priority} -> {client_low_fairness_ratio.priority}")
+          f"client_high({client_high_fairness_ratio.client_id}): {old_high_priority} -> {client_high_fairness_ratio.priority}{high_clipped}, "
+          f"client_low({client_low_fairness_ratio.client_id}): {old_low_priority} -> {client_low_fairness_ratio.priority}{low_clipped}")
 
 
 def update_credits_and_counters(client1, client2, delta):

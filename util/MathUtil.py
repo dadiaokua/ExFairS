@@ -1,4 +1,5 @@
 import os
+import math
 
 import numpy as np
 
@@ -8,6 +9,74 @@ from util.BaseUtil import selectClients_LFS, selectClients_VTC, exchange_resourc
 import datetime
 
 from util.FileSaveUtil import save_to_file
+
+
+def calculate_dynamic_alpha(clients, window_size=5):
+    """
+    计算动态 α（焦虑驱动型）
+    
+    数学模型：
+    α(t) = α_min + (α_max - α_min) / (1 + e^(-k * (slo_rate - θ)))
+    
+    三阶段行为：
+    - 阶段一（资源计费区）: slo_rate < θ → α ≈ α_min，主要关注资源公平
+    - 阶段二（焦虑爬升区）: slo_rate ≈ θ → α 快速从 α_min 跃迁到 α_max
+    - 阶段三（崩溃受苦区）: slo_rate > θ → α ≈ α_max，主要关注 SLO 公平
+    
+    Args:
+        clients: 客户端列表
+        window_size: 时间窗大小
+    
+    Returns:
+        float: 动态计算的 α 值
+    """
+    if not GLOBAL_CONFIG.get("dynamic_alpha_enabled", False):
+        return GLOBAL_CONFIG.get("alpha", 0.8)
+    
+    alpha_min = GLOBAL_CONFIG.get("alpha_min", 0.2)
+    alpha_max = GLOBAL_CONFIG.get("alpha_max", 0.9)
+    k = GLOBAL_CONFIG.get("alpha_k", 10.0)
+    theta = GLOBAL_CONFIG.get("alpha_theta", 0.1)
+    
+    # 计算全局 SLO 违约率
+    total_requests = 0
+    total_violations = 0
+    
+    for client in clients:
+        if hasattr(client, 'results') and client.results:
+            # 使用时间窗内的数据
+            recent_results = client.results[-window_size:] if len(client.results) >= window_size else client.results
+            for result in recent_results:
+                total_requests += result.get('total_requests', 0)
+                total_violations += result.get('slo_violation_count', 0)
+    
+    if total_requests == 0:
+        # 没有数据时使用默认 α
+        return GLOBAL_CONFIG.get("alpha", 0.8)
+    
+    slo_rate = total_violations / total_requests
+    
+    # Sigmoid 函数计算动态 α
+    # α(t) = α_min + (α_max - α_min) / (1 + e^(-k * (slo_rate - θ)))
+    exponent = -k * (slo_rate - theta)
+    # 防止数值溢出
+    exponent = max(-50, min(50, exponent))
+    sigmoid = 1 / (1 + math.exp(exponent))
+    
+    dynamic_alpha = alpha_min + (alpha_max - alpha_min) * sigmoid
+    
+    # 确定当前阶段
+    if slo_rate < theta * 0.5:
+        stage = "资源计费区"
+    elif slo_rate < theta * 1.5:
+        stage = "焦虑爬升区"
+    else:
+        stage = "崩溃受苦区"
+    
+    print(f"[Dynamic Alpha] slo_rate={slo_rate:.2%}, θ={theta:.2%}, "
+          f"α={dynamic_alpha:.3f} (min={alpha_min}, max={alpha_max}), stage={stage}")
+    
+    return dynamic_alpha
 
 
 def calculate_Jains_index(clients, exp_type, metric_name="fairness_ratio", values=None):
@@ -113,7 +182,43 @@ def calculate_service_value(total_input_tokens, total_output_tokens):
     return total_input_tokens + 2 * total_output_tokens
 
 
+def get_windowed_results(client, window_size):
+    """
+    【改进4】获取最近 N 轮的结果数据
+    
+    Args:
+        client: 客户端对象
+        window_size: 时间窗大小（轮数）
+    
+    Returns:
+        dict: 聚合后的结果数据
+    """
+    results = client.results
+    if not results:
+        return None
+    
+    # 获取最近 window_size 轮的结果
+    recent_results = results[-window_size:] if len(results) >= window_size else results
+    
+    # 聚合计算
+    total_input_tokens = sum(r.get("total_input_tokens", 0) for r in recent_results)
+    total_output_tokens = sum(r.get("total_output_tokens", 0) for r in recent_results)
+    total_requests = sum(r.get("total_requests", 0) for r in recent_results)
+    slo_violation_count = sum(r.get("slo_violation_count", 0) for r in recent_results)
+    
+    return {
+        "total_input_tokens": total_input_tokens,
+        "total_output_tokens": total_output_tokens,
+        "total_requests": total_requests,
+        "slo_violation_count": slo_violation_count,
+        "window_rounds": len(recent_results)
+    }
+
+
 async def fairness_result(clients, exp_type, logger):
+    # 【改进4】使用时间窗计算公平性
+    window_size = GLOBAL_CONFIG.get("fairness_window_size", 5)
+    
     # Calculate service values and total service in one pass
     total_service = 0
     service = []
@@ -121,16 +226,17 @@ async def fairness_result(clients, exp_type, logger):
     raw_latencies = []
     raw_costs = []
 
-    logger.debug(f"[Fairness Debug] Calculating fairness for {len(clients)} clients")
+    logger.debug(f"[Fairness Debug] Calculating fairness for {len(clients)} clients (window_size={window_size})")
 
     for client in clients:
-        # Get latest results
-        latest_result = client.results[-1]
+        # 【改进4】获取时间窗内的聚合结果
+        windowed_result = get_windowed_results(client, window_size)
+        latest_result = client.results[-1]  # 仍需要最新一轮数据用于其他指标
 
-        # Calculate service value
+        # Calculate service value using windowed data
         service_value = calculate_service_value(
-            latest_result["total_input_tokens"],
-            latest_result["total_output_tokens"]
+            windowed_result["total_input_tokens"],
+            windowed_result["total_output_tokens"]
         )
 
         if "QUE" in exp_type:
@@ -192,11 +298,28 @@ async def fairness_result(clients, exp_type, logger):
 
     # Calculate fairness ratios in one pass
     # service_ratio = service / total_service (用户资源占比)
-    alpha = GLOBAL_CONFIG['alpha']
+    # 【动态 α】根据全局 SLO 违约率动态调整 α
+    alpha = calculate_dynamic_alpha(clients, window_size)
+    
     for client in clients:
-        slo_violation_ratio = client.slo_violation_count / client.results[-1]['total_requests']
+        # 【改进4】使用时间窗内的聚合数据计算 SLO 违约率
+        windowed_result = get_windowed_results(client, window_size)
+        total_requests_in_window = windowed_result["total_requests"]
+        slo_violations_in_window = windowed_result["slo_violation_count"]
+        
+        if total_requests_in_window > 0:
+            slo_violation_ratio = slo_violations_in_window / total_requests_in_window
+        else:
+            slo_violation_ratio = 0
+        
         service_ratio = client.service / total_service  # 使用总和而非最大值
         client.fairness_ratio = service_ratio * (1 - alpha) + alpha * slo_violation_ratio
+        
+        logger.debug(f"[Fairness Debug] Client {client.client_id}: "
+                    f"window_rounds={windowed_result['window_rounds']}, "
+                    f"slo_violations={slo_violations_in_window}/{total_requests_in_window}, "
+                    f"slo_ratio={slo_violation_ratio:.4f}, service_ratio={service_ratio:.4f}, "
+                    f"fairness_ratio={client.fairness_ratio:.4f}, alpha={alpha:.3f}")
 
         if "QUE" in exp_type:
             # 添加保护性检查，防止失败实验导致KeyError
@@ -233,15 +356,21 @@ async def fairness_result(clients, exp_type, logger):
                 'que_latency', 0.4) * client.Norm_latency - GLOBAL_CONFIG.get('que_cost', 0.3) * client.Norm_cost
 
     # Calculate Jain's fairness index based on SLO violation ratio only
+    # 【改进4】使用时间窗内的聚合数据计算 SLO 违约率 Jain Index
     # 各用户的 SLO 违约率越接近，说明调度越公平
     slo_violation_ratios = []
     for client in clients:
-        total_requests = client.results[-1]['total_requests']
-        if total_requests > 0:
-            slo_ratio = client.slo_violation_count / total_requests
+        windowed_result = get_windowed_results(client, window_size)
+        total_requests_in_window = windowed_result["total_requests"]
+        slo_violations_in_window = windowed_result["slo_violation_count"]
+        
+        if total_requests_in_window > 0:
+            slo_ratio = slo_violations_in_window / total_requests_in_window
         else:
             slo_ratio = 0.0
         slo_violation_ratios.append(slo_ratio)
+    
+    logger.debug(f"[Fairness Debug] SLO violation ratios (window={window_size}): {slo_violation_ratios}")
     slo_jains_index = calculate_Jains_index(clients, exp_type, metric_name="slo_violation_ratio", values=slo_violation_ratios)
     
     logger.info(f"[Fairness] JAIN Index (SLO Violation): {slo_jains_index:.4f}")
