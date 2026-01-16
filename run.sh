@@ -4,10 +4,11 @@
 # vLLM Benchmark 主运行脚本 - 实时监控模式
 # =============================================================================
 # 核心特点：
-# 1. 只做一轮，持续时间长（可配置，默认10分钟）
-# 2. 后台监控器每60秒收集一次数据
-# 3. 实时计算SAFI和优先级交换
-# 4. 不阻塞推理，更新后的优先级立即作用于新请求
+# 1. 直接启动 vLLM 引擎，无需预先启动服务器
+# 2. 只做一轮，持续时间长（可配置，默认10分钟）
+# 3. 后台监控器每60秒收集一次数据
+# 4. 实时计算SAFI和优先级交换
+# 5. 不阻塞推理，更新后的优先级立即作用于新请求
 # =============================================================================
 
 set -e
@@ -17,11 +18,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RESULTS_BASE_DIR="$SCRIPT_DIR/results"
 
 # ========== 默认配置 ==========
-DEFAULT_DURATION=600        # 默认10分钟
+DEFAULT_DURATION=450        # 默认7.5分钟
 DEFAULT_INTERVAL=60         # 默认60秒监控间隔
-DEFAULT_PORT=8000
-DEFAULT_MODEL=""
+DEFAULT_MODEL="/home/llm/model_hub/Qwen3-8B"  # 模型路径（用于引擎启动和tokenizer）
 DEFAULT_DATASET="sharegpt"
+DEFAULT_TENSOR_PARALLEL=8   # 默认张量并行大小
+DEFAULT_MAX_NUM_SEQS=128    # 默认最大序列数
 
 # ========== 帮助信息 ==========
 show_help() {
@@ -35,8 +37,9 @@ show_help() {
   --scenario SCENARIO           指定单个场景
   --duration SECONDS            实验持续时间（秒，默认600=10分钟）
   --interval SECONDS            监控间隔（秒，默认60）
-  --port PORT                   vLLM服务端口（默认8000）
-  --model MODEL                 模型路径/名称（用于tokenizer）
+  --model MODEL                 模型路径（用于引擎启动和tokenizer）
+  --tensor-parallel N           张量并行大小（默认8）
+  --max-num-seqs N              最大并发序列数（默认128）
   --dataset DATASET             数据集名称（默认sharegpt）
   --output-dir DIR              指定输出目录
 
@@ -48,12 +51,12 @@ show_help() {
   - QUEUE_FCFS                  先到先服务
   - QUEUE_RR                    轮询调度
 
-可用场景 (支持数字或完整名称):
-  - 1 / scenario_I              Mix2: QPM不均 (20,60), SLO统一 (20s)
-  - 2 / scenario_II             Mix2: QPM均匀 (40,40), SLO不均 (15,20s)
-  - 3 / scenario_III            Mix4: QPM递增 (15-30), SLO统一 (15s)
-  - 4 / scenario_IV             Mix4: QPM均匀 (20), SLO递增 (10-20s)
-  - 5 / scenario_V              Mix6: 综合差异场景
+可用场景 (支持数字或完整名称, 总QPM=150):
+  - 1 / scenario_I              Mix2: QPM不均 (40,110), SLO统一 (16s)
+  - 2 / scenario_II             Mix2: QPM均匀 (75,75), SLO不均 (12,16s)
+  - 3 / scenario_III            Mix4: QPM递增 (25-50), SLO统一 (12s)
+  - 4 / scenario_IV             Mix4: QPM均匀 (37-38), SLO递增 (8-16s)
+  - 5 / scenario_V              Mix6: 综合差异场景 (15-30 QPM, 8-13s SLO)
 
 示例:
   # 默认运行（场景1 + ExFairS）
@@ -71,6 +74,9 @@ show_help() {
   # 自定义持续时间和监控间隔
   $0 -e QUEUE_ExFairS --scenario 1 --duration 300 --interval 30
 
+  # 指定模型路径
+  $0 -e QUEUE_ExFairS --scenario 1 --model /home/llm/model_hub/Qwen3-8B
+
   # 运行所有场景所有策略
   $0 -s 1,2,3,4,5 -e QUEUE_ExFairS,QUEUE_Justitia,QUEUE_SLOGreedy,QUEUE_VTC,QUEUE_FCFS
 
@@ -85,11 +91,11 @@ EOF
 map_scenario() {
     local input="$1"
     case "$input" in
-        1) echo "scenario_I" ;;
-        2) echo "scenario_II" ;;
-        3) echo "scenario_III" ;;
-        4) echo "scenario_IV" ;;
-        5) echo "scenario_V" ;;
+        1|I) echo "scenario_I" ;;
+        2|II) echo "scenario_II" ;;
+        3|III) echo "scenario_III" ;;
+        4|IV) echo "scenario_IV" ;;
+        5|V) echo "scenario_V" ;;
         scenario_*) echo "$input" ;;
         *) echo "$input" ;;
     esac
@@ -149,8 +155,9 @@ SCENARIOS=""
 SINGLE_SCENARIO=""
 DURATION=$DEFAULT_DURATION
 INTERVAL=$DEFAULT_INTERVAL
-PORT=$DEFAULT_PORT
 MODEL=$DEFAULT_MODEL
+TENSOR_PARALLEL=$DEFAULT_TENSOR_PARALLEL
+MAX_NUM_SEQS=$DEFAULT_MAX_NUM_SEQS
 DATASET=$DEFAULT_DATASET
 OUTPUT_DIR=""
 
@@ -188,12 +195,16 @@ while [[ $# -gt 0 ]]; do
             INTERVAL="$2"
             shift 2
             ;;
-        --port)
-            PORT="$2"
-            shift 2
-            ;;
         --model)
             MODEL="$2"
+            shift 2
+            ;;
+        --tensor-parallel)
+            TENSOR_PARALLEL="$2"
+            shift 2
+            ;;
+        --max-num-seqs)
+            MAX_NUM_SEQS="$2"
             shift 2
             ;;
         --dataset)
@@ -244,7 +255,8 @@ echo "║  场景: ${SCENARIO_ARRAY[@]}"
 echo "║  策略: ${EXP_ARRAY[@]}"
 echo "║  持续时间: ${DURATION}s ($(format_duration $DURATION))"
 echo "║  监控间隔: ${INTERVAL}s"
-echo "║  vLLM端口: $PORT"
+echo "║  模型: $MODEL"
+echo "║  张量并行: $TENSOR_PARALLEL"
 echo "║  结果目录: $RUN_RESULTS_DIR"
 echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
@@ -258,7 +270,9 @@ echo ""
     echo "策略: ${EXP_ARRAY[@]}"
     echo "持续时间: ${DURATION}s"
     echo "监控间隔: ${INTERVAL}s"
-    echo "vLLM端口: $PORT"
+    echo "模型: $MODEL"
+    echo "张量并行: $TENSOR_PARALLEL"
+    echo "最大序列数: $MAX_NUM_SEQS"
     echo "=========================================="
 } >> "$LOG_FILE"
 
@@ -268,17 +282,55 @@ run_counter=0
 success_counter=0
 failed_runs=()
 
+# 时间预测（每次实验约需要 DURATION + 60秒启动/关闭时间，策略间等待5秒）
+ENGINE_OVERHEAD=60  # 引擎启动和关闭时间
+STRATEGY_WAIT=5     # 策略之间等待时间
+SCENARIO_WAIT=5     # 场景之间等待时间
+VIS_TIME=10         # 可视化时间
+
+# 单个实验时间 = 持续时间 + 引擎开销
+single_exp_time=$((DURATION + ENGINE_OVERHEAD))
+
+# 单个场景时间 = (单个实验时间 + 策略等待) * 策略数 - 最后一个不等待 + 可视化时间
+num_strategies=${#EXP_ARRAY[@]}
+single_scenario_time=$(( (single_exp_time + STRATEGY_WAIT) * num_strategies - STRATEGY_WAIT + VIS_TIME ))
+
+# 总时间 = (单个场景时间 + 场景等待) * 场景数 - 最后一个不等待
+num_scenarios=${#SCENARIO_ARRAY[@]}
+total_estimated_time=$(( (single_scenario_time + SCENARIO_WAIT) * num_scenarios - SCENARIO_WAIT ))
+
+# 打印时间预测
+echo "╔════════════════════════════════════════════════════════════════╗"
+echo "║                      ⏱️  时间预测                               ║"
+echo "╠════════════════════════════════════════════════════════════════╣"
+echo "║  单次实验: ~$(format_duration $single_exp_time) (实验${DURATION}s + 引擎启停${ENGINE_OVERHEAD}s)"
+echo "║  单个场景: ~$(format_duration $single_scenario_time) ($num_strategies 个策略)"
+echo "║  总计: ~$(format_duration $total_estimated_time) ($num_scenarios 场景 × $num_strategies 策略 = $total_runs 次实验)"
+echo "║  预计完成: $(date -d "+$total_estimated_time seconds" '+%Y-%m-%d %H:%M:%S')"
+echo "╚════════════════════════════════════════════════════════════════╝"
+echo ""
+
 BATCH_START_TIME=$(date +%s)
 
 # ========== 批量运行 ==========
 for scenario in "${SCENARIO_ARRAY[@]}"; do
     SCENARIO_START_TIME=$(date +%s)
     
+    # 计算当前场景索引和剩余时间
+    scenario_index=0
+    for i in "${!SCENARIO_ARRAY[@]}"; do
+        [[ "${SCENARIO_ARRAY[$i]}" == "$scenario" ]] && scenario_index=$i && break
+    done
+    remaining_scenarios=$((num_scenarios - scenario_index))
+    remaining_time=$(( (single_scenario_time + SCENARIO_WAIT) * remaining_scenarios - SCENARIO_WAIT ))
+    
     echo "" | tee -a "$LOG_FILE"
-    echo "╔════════════════════════════════════════╗" | tee -a "$LOG_FILE"
-    echo "║  开始场景: $scenario" | tee -a "$LOG_FILE"
+    echo "╔════════════════════════════════════════════════════════════╗" | tee -a "$LOG_FILE"
+    echo "║  🎯 开始场景: $scenario ($((scenario_index + 1))/$num_scenarios)" | tee -a "$LOG_FILE"
     echo "║  开始时间: $(date '+%Y-%m-%d %H:%M:%S')" | tee -a "$LOG_FILE"
-    echo "╚════════════════════════════════════════╝" | tee -a "$LOG_FILE"
+    echo "║  预计耗时: ~$(format_duration $single_scenario_time)" | tee -a "$LOG_FILE"
+    echo "║  剩余总时间: ~$(format_duration $remaining_time)" | tee -a "$LOG_FILE"
+    echo "╚════════════════════════════════════════════════════════════╝" | tee -a "$LOG_FILE"
     
     scenario_success=0
     
@@ -286,20 +338,28 @@ for scenario in "${SCENARIO_ARRAY[@]}"; do
         run_counter=$((run_counter + 1))
         EXP_START_TIME=$(date +%s)
         
+        # 计算剩余实验数和时间
+        remaining_exps=$((total_runs - run_counter + 1))
+        # 简化计算：剩余实验数 × 单次实验时间
+        remaining_exp_time=$((remaining_exps * (single_exp_time + STRATEGY_WAIT) - STRATEGY_WAIT))
+        
         echo "" | tee -a "$LOG_FILE"
         echo "========================================" | tee -a "$LOG_FILE"
         echo "🚀 运行 $run_counter/$total_runs: $scenario + $exp" | tee -a "$LOG_FILE"
-        echo "⏰ 开始: $(date '+%H:%M:%S')" | tee -a "$LOG_FILE"
+        echo "⏰ 开始: $(date '+%H:%M:%S') | 预计耗时: ~$(format_duration $single_exp_time) | 剩余: ~$(format_duration $remaining_exp_time)" | tee -a "$LOG_FILE"
         echo "========================================" | tee -a "$LOG_FILE"
         
         # 构建Python命令参数
-        CMD_ARGS="--scenario $scenario --strategy $exp --duration $DURATION --interval $INTERVAL --port $PORT --run-id $RUN_TIMESTAMP"
+        CMD_ARGS="--scenario $scenario --strategy $exp --duration $DURATION --interval $INTERVAL --run-id $RUN_TIMESTAMP"
         [[ -n "$MODEL" ]] && CMD_ARGS="$CMD_ARGS --model $MODEL"
+        [[ -n "$TENSOR_PARALLEL" ]] && CMD_ARGS="$CMD_ARGS --tensor-parallel $TENSOR_PARALLEL"
+        [[ -n "$MAX_NUM_SEQS" ]] && CMD_ARGS="$CMD_ARGS --max-num-seqs $MAX_NUM_SEQS"
         [[ -n "$DATASET" ]] && CMD_ARGS="$CMD_ARGS --dataset $DATASET"
         
         # 运行实时监控实验
+        # 详细输出只写入日志文件，控制台只显示进度
         cd "$SCRIPT_DIR"
-        if python3 scripts/run_realtime_benchmark.py $CMD_ARGS 2>&1 | tee -a "$LOG_FILE"; then
+        if python3 scripts/run_realtime_benchmark.py $CMD_ARGS >> "$LOG_FILE" 2>&1; then
             success_counter=$((success_counter + 1))
             scenario_success=$((scenario_success + 1))
             EXP_END_TIME=$(date +%s)
@@ -329,8 +389,9 @@ for scenario in "${SCENARIO_ARRAY[@]}"; do
     
     if [[ -f "$SCRIPT_DIR/scripts/visualize_results.py" ]]; then
         cd "$SCRIPT_DIR"
+        # 可视化脚本输出只写入日志文件
         if python3 scripts/visualize_results.py "$scenario" --run-id "$RUN_TIMESTAMP" --results-dir "$RESULTS_BASE_DIR" >> "$LOG_FILE" 2>&1; then
-            echo "✅ 可视化完成: $RUN_RESULTS_DIR/$scenario/charts/" | tee -a "$LOG_FILE"
+            echo "✅ 可视化完成" | tee -a "$LOG_FILE"
         else
             echo "⚠️  可视化失败（不影响实验结果）" | tee -a "$LOG_FILE"
         fi
@@ -346,11 +407,7 @@ for scenario in "${SCENARIO_ARRAY[@]}"; do
     echo "║  场景耗时: $(format_duration $SCENARIO_DURATION)" | tee -a "$LOG_FILE"
     echo "╚════════════════════════════════════════════════════════╝" | tee -a "$LOG_FILE"
     
-    # 场景之间等待
-    scenario_index=0
-    for i in "${!SCENARIO_ARRAY[@]}"; do
-        [[ "${SCENARIO_ARRAY[$i]}" == "$scenario" ]] && scenario_index=$i && break
-    done
+    # 场景之间等待（scenario_index 已在循环开始时计算）
     if [[ $((scenario_index + 1)) -lt ${#SCENARIO_ARRAY[@]} ]]; then
         echo "⏸️  场景间隔，等待 5 秒..." | tee -a "$LOG_FILE"
         sleep 5
@@ -384,7 +441,9 @@ cat > "$RUN_RESULTS_DIR/metadata.json" << EOF
   "experiments": [$(printf '"%s",' "${EXP_ARRAY[@]}" | sed 's/,$//')],
   "duration_seconds": $DURATION,
   "interval_seconds": $INTERVAL,
-  "port": $PORT,
+  "model": "$MODEL",
+  "tensor_parallel_size": $TENSOR_PARALLEL,
+  "max_num_seqs": $MAX_NUM_SEQS,
   "total_runs": $total_runs,
   "successful_runs": $success_counter,
   "failed_runs": $((total_runs - success_counter)),

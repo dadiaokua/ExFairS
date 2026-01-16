@@ -117,14 +117,15 @@ class BenchmarkClient:
         logger = logging.getLogger(f"client_{self.client_id}")
         logger.setLevel(logging.DEBUG)  # 将logger的级别设置为DEBUG
         if not logger.handlers:
-            fh = logging.FileHandler(log_file, encoding="utf-8", mode="a")  # 改回追加模式
-            fh.setLevel(logging.DEBUG)  # 将文件处理器的级别也设置为DEBUG
+            # 文件处理器 - 记录所有详细信息
+            fh = logging.FileHandler(log_file, encoding="utf-8", mode="a")
+            fh.setLevel(logging.DEBUG)
             formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
             fh.setFormatter(formatter)
             logger.addHandler(fh)
-            # 控制台输出
+            # 控制台输出 - 只显示警告和错误
             ch = logging.StreamHandler()
-            ch.setLevel(logging.INFO)  # 将控制台处理器的级别设置为INFO
+            ch.setLevel(logging.WARNING)
             ch.setFormatter(formatter)
             logger.addHandler(ch)
             

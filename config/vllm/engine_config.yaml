@@ -1,10 +1,11 @@
 # vLLM Engine Configuration
 # This file contains all vLLM engine parameters
+# 引擎通过代码直接启动，无需外部服务器
 
 # Model Configuration
 model_path: "/home/llm/model_hub/Qwen3-8B"
 tokenizer_path: "/home/llm/model_hub/Qwen3-8B"
-request_model_name: "Qwen2.5-32B"
+request_model_name: "Qwen/Qwen3-8B"
 
 # Parallelism Configuration
 tensor_parallel_size: 8
@@ -31,15 +32,6 @@ disable_log_stats: true
 enable_prefix_caching: false
 
 # Scheduling
+# 使用 "priority" 策略支持优先级调度
 scheduling_policy: "priority"
-
-# Server Configuration
-start_engine: true
-vllm_url: "http://222.201.144.119:8000/v1"
-api_key: "None"
-
-# Tunnel Configuration
-use_tunnel: 0
-local_port: "8000"
-remote_port: "10085"
 

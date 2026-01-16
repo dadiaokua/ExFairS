@@ -2,36 +2,36 @@
 # Scenario IV: Mix 4 Clients - SLO递增分布
 # =============================================================================
 # 客户端: 4 Mix
-# QPM: 20 (均匀分布)
-# SLO: 10s, 12s, 15s, 20s (递增分布)
-# 总 QPM: 80
+# QPM: 37, 37, 38, 38 (均匀分布)
+# SLO: 8s, 10s, 12s, 16s (递增分布，原10/12/15/20s的80%)
+# 总 QPM: 150
 # =============================================================================
 
 name: "Scenario_IV_Mix4_SLO_Gradient"
-description: "Mix 4 Clients with gradient SLO (10-20s)"
+description: "Mix 4 Clients with gradient SLO (8-16s)"
 
 # 覆盖基础配置
 experiment:
-  request_timeout: 25
+  request_timeout: 20
   max_output_tokens: 512
 
 # 客户端配置
 clients:
   - type: Mix
     count: 1
-    qpm: 20
+    qpm: 37
+    slo: 8
+  - type: Mix
+    count: 1
+    qpm: 37
     slo: 10
   - type: Mix
     count: 1
-    qpm: 20
+    qpm: 38
     slo: 12
   - type: Mix
     count: 1
-    qpm: 20
-    slo: 15
-  - type: Mix
-    count: 1
-    qpm: 20
-    slo: 20
+    qpm: 38
+    slo: 16
 
-# 总 QPM: 80
+# 总 QPM: 150

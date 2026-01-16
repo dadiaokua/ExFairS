@@ -93,17 +93,22 @@ class RealtimeMonitor:
             self._client_stats[client.client_id] = ClientStats(client_id=client.client_id)
     
     def _setup_logger(self) -> logging.Logger:
-        """设置日志记录器"""
+        """设置日志记录器
+        
+        控制台只显示重要信息（WARNING及以上），详细信息写入日志文件
+        """
         logger = logging.getLogger(f"RealtimeMonitor-{self.exp_type}")
         
         if not logger.handlers:
-            logger.setLevel(logging.INFO)
+            logger.setLevel(logging.DEBUG)
             
+            # 控制台处理器 - 只显示警告和错误
             ch = logging.StreamHandler()
-            ch.setLevel(logging.INFO)
+            ch.setLevel(logging.WARNING)
             
             os.makedirs('log', exist_ok=True)
             timestamp = GLOBAL_CONFIG.get("monitor_file_time", datetime.now().strftime("%m%d_%H%M"))
+            # 文件处理器 - 记录所有详细信息
             fh = logging.FileHandler(
                 filename=f'log/realtime_monitor_{self.exp_type}_{timestamp}.log',
                 encoding="utf-8", mode="a"

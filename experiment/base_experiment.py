@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 import os
 import logging
 
+from config.Config import GLOBAL_CONFIG
 from util.JsonFormatterUtil import make_prefix_list
 from util.MathUtil import calculate_metrics
 from util.RequestUtil import worker
@@ -69,7 +70,10 @@ class BaseExperiment:
 
     async def setup(self):
         """设置实验，进行必要的准备工作"""
-        assert self.openAI_client is not None, "OpenAI Client must not be None"
+        # 检查是否有 vLLM 引擎或 OpenAI 客户端
+        vllm_engine = GLOBAL_CONFIG.get('vllm_engine')
+        if vllm_engine is None and self.openAI_client is None:
+            raise ValueError("Either vLLM engine or OpenAI Client must be available")
 
         print(
             f"[Client {self.client_id}] Experiment setup complete: {self.qpm} workers with {1} QPS per worker")

@@ -238,13 +238,17 @@ def calculate_jain_index(values: List[float]) -> float:
     """
     计算 Jain's Fairness Index
     
-    对于 SLO 违约率（越小越好），使用 1 - normalized_value 转换
+    标准公式: J(x) = (Σxi)² / (n * Σxi²)
+    
+    对于 SLO 违约率（越小越好），我们计算的是"违约率的公平性"：
+    - 如果所有客户端违约率相同（无论高低），则公平性为 1.0
+    - 如果违约率差异大，则公平性低
     
     Args:
-        values: 各客户端的指标值列表
+        values: 各客户端的指标值列表（如 SLO 违约率）
         
     Returns:
-        Jain's Fairness Index (0-1)
+        Jain's Fairness Index (0-1)，1.0 表示完全公平
     """
     n = len(values)
     
@@ -253,24 +257,24 @@ def calculate_jain_index(values: List[float]) -> float:
     if n == 1:
         return 1.0
     
-    min_val = min(values)
-    max_val = max(values)
-    
-    if max_val == min_val:
+    # 检查是否所有值都相同
+    if all(v == values[0] for v in values):
         return 1.0  # 所有值相等，完全公平
     
-    # 归一化并转换（越小越好 -> 1 - normalized）
-    normalized = [(v - min_val) / (max_val - min_val) for v in values]
-    transformed = [1 - nv for nv in normalized]
+    # 检查是否所有值都为 0
+    if all(v == 0 for v in values):
+        return 1.0  # 没有违约，完全公平
     
-    # Jain's Index
-    sum_t = sum(transformed)
-    sum_sq = sum(t**2 for t in transformed)
+    # 标准 Jain's Index 公式
+    sum_x = sum(values)
+    sum_sq = sum(v ** 2 for v in values)
     
-    if n * sum_sq == 0:
-        return 0.0
+    if sum_sq == 0:
+        return 1.0  # 避免除零
     
-    return (sum_t ** 2) / (n * sum_sq)
+    jain = (sum_x ** 2) / (n * sum_sq)
+    
+    return jain
 
 
 def calculate_fairness_metrics(all_stats: Dict[str, ClientStats]) -> Dict[str, Any]:

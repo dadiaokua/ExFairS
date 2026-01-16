@@ -26,7 +26,7 @@ GLOBAL_CONFIG = {
     "avg_success_rate": 0.9,
     "max_exchange_times": 1,
     "prompt_max_len": 10000,
-    "request_model_name": "",
+    "request_model_name": "Qwen/Qwen3-8B",
     "buffer_ratio": 0.2,
     "request_timeout": 30,  # 单个请求超时时间（秒），会被场景配置覆盖
     

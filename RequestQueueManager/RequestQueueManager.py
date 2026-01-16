@@ -146,7 +146,7 @@ class RequestQueueManager:
         """设置日志记录器"""
         logger = logging.getLogger("RequestQueueManager")
         if not logger.handlers:
-            logger.setLevel(logging.INFO)
+            logger.setLevel(logging.DEBUG)
 
             # 确保log目录存在
             os.makedirs('log', exist_ok=True)
@@ -154,13 +154,13 @@ class RequestQueueManager:
             # 使用全局配置中的时间戳
             timestamp = GLOBAL_CONFIG.get("monitor_file_time", "default")
 
-            # 创建文件处理器
+            # 创建文件处理器 - 记录所有详细信息
             fh = logging.FileHandler(filename=f'log/request_queue_manager_{timestamp}.log', encoding="utf-8", mode="a")
             fh.setLevel(logging.DEBUG)
 
-            # 创建控制台处理器
+            # 创建控制台处理器 - 只显示警告和错误
             ch = logging.StreamHandler()
-            ch.setLevel(logging.INFO)
+            ch.setLevel(logging.WARNING)
 
             # 创建格式化器
             formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')

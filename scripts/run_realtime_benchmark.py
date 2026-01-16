@@ -3,13 +3,17 @@
 实时监控模式的基准测试入口
 
 核心特点：
-1. 只做一轮，持续时间长（可配置，默认10分钟）
-2. 后台监控器每60秒收集一次数据
-3. 实时计算SAFI和优先级交换
-4. 不阻塞推理，更新后的优先级立即作用于新请求
+1. 直接启动 vLLM 引擎，无需预先启动服务器
+2. 只做一轮，持续时间长（可配置，默认10分钟）
+3. 后台监控器每60秒收集一次数据
+4. 实时计算SAFI和优先级交换
+5. 不阻塞推理，更新后的优先级立即作用于新请求
 
 用法：
     python scripts/run_realtime_benchmark.py --scenario scenario_I --strategy QUEUE_ExFairS --duration 600 --interval 60
+    
+    # 指定模型路径
+    python scripts/run_realtime_benchmark.py --scenario scenario_I --model /path/to/model
 """
 
 import argparse
@@ -31,24 +35,29 @@ os.chdir(PROJECT_ROOT)  # 切换到项目根目录
 from config.Config import GLOBAL_CONFIG
 from BenchmarkMonitor.RealtimeMonitor import RealtimeMonitor
 from RequestQueueManager.RequestQueueManager import RequestQueueManager, QueueStrategy
-from util.BaseUtil import initialize_clients
 from util.JsonFormatterUtil import formated_json
+from util.vllm.engine_manager import VLLMEngineManager, setup_vllm_logging
 
 
 def setup_logging(exp_type: str) -> logging.Logger:
-    """设置日志"""
+    """设置日志
+    
+    控制台只显示重要信息（WARNING及以上），详细信息写入日志文件
+    """
     timestamp = datetime.now().strftime("%m%d_%H%M")
     GLOBAL_CONFIG["monitor_file_time"] = timestamp
     
     os.makedirs('log', exist_ok=True)
     
     logger = logging.getLogger("RealtimeBenchmark")
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
     
     if not logger.handlers:
+        # 控制台处理器 - 只显示重要信息
         ch = logging.StreamHandler()
-        ch.setLevel(logging.INFO)
+        ch.setLevel(logging.WARNING)
         
+        # 文件处理器 - 记录所有详细信息
         fh = logging.FileHandler(f'log/realtime_benchmark_{exp_type}_{timestamp}.log', encoding='utf-8')
         fh.setLevel(logging.DEBUG)
         
@@ -80,9 +89,13 @@ def create_benchmark_clients(scenario_config: Dict, exp_type: str,
                              queue_manager: RequestQueueManager,
                              result_queue: asyncio.Queue,
                              tokenizer, formatted_json_data: List,
-                             openai_clients: List,
+                             openai_clients,  # 可以为 None（使用直接引擎模式）
                              duration: int) -> List:
-    """根据场景配置创建客户端"""
+    """根据场景配置创建客户端
+    
+    Args:
+        openai_clients: OpenAI 客户端列表，如果为 None 则使用 vLLM 直接引擎模式
+    """
     from BenchmarkClient.BenchmarkClient import BenchmarkClient
     
     clients = []
@@ -97,6 +110,14 @@ def create_benchmark_clients(scenario_config: Dict, exp_type: str,
         for i in range(count):
             client_index = len(clients)
             
+            # 获取 max_output_tokens 配置
+            max_output_tokens = scenario_config.get('max_output_tokens', GLOBAL_CONFIG.get('max_output_tokens', 256))
+            
+            # 如果 openai_clients 为 None，传入 None（使用直接引擎模式）
+            openai_client = None
+            if openai_clients is not None and len(openai_clients) > 0:
+                openai_client = openai_clients[client_index % len(openai_clients)]
+            
             client = BenchmarkClient(
                 client_type=client_type,
                 client_index=client_index,
@@ -106,7 +127,7 @@ def create_benchmark_clients(scenario_config: Dict, exp_type: str,
                 tokenizer=tokenizer,
                 exp_type=exp_type,
                 distribution=GLOBAL_CONFIG.get('distribution', 'poisson'),
-                request_timeout=GLOBAL_CONFIG.get('request_timeout', 120),
+                request_timeout=scenario_config.get('request_timeout', GLOBAL_CONFIG.get('request_timeout', 120)),
                 concurrency=GLOBAL_CONFIG.get('concurrency', 10),
                 round=1,
                 round_time=duration,
@@ -114,7 +135,7 @@ def create_benchmark_clients(scenario_config: Dict, exp_type: str,
                 time_data=None,
                 result_queue=result_queue,
                 formatted_json=formatted_json_data,
-                OpenAI_client=openai_clients[client_index % len(openai_clients)],
+                OpenAI_client=openai_client,  # 可以为 None
                 qpm_ratio=1.0,
                 latency_slo=slo,
                 use_time_data=0,
@@ -124,6 +145,14 @@ def create_benchmark_clients(scenario_config: Dict, exp_type: str,
                 burst_interval=scenario_config.get('burst_interval', 3),
                 burst_multiplier=scenario_config.get('burst_multiplier', 2.0)
             )
+            
+            # 设置 experiment_config（BaseExperiment 需要）
+            client.experiment_config = {
+                'output_tokens': max_output_tokens,
+                'qpm': qpm,
+                'config_round': 1,
+                'latency_slo': slo
+            }
             
             clients.append(client)
     
@@ -157,13 +186,42 @@ async def run_realtime_experiment(clients: List,
     for client in clients:
         client.realtime_monitor = monitor
     
-    # 启动监控器
+    # 先为所有客户端创建 experiment 并完成 setup
+    # 这样可以确保 setup 时间不计入实验时间
+    from experiment.queue_experiment import QueueExperiment
+    
+    strategy_map = {
+        "QUEUE_ExFairS": QueueStrategy.PRIORITY,
+        "QUEUE_LFS": QueueStrategy.PRIORITY,
+        "QUEUE_FCFS": QueueStrategy.FIFO,
+        "QUEUE_VTC": QueueStrategy.VTC,
+        "QUEUE_Justitia": QueueStrategy.JUSTITIA,
+        "QUEUE_SLOGreedy": QueueStrategy.SLO_GREEDY,
+        "QUEUE_RR": QueueStrategy.ROUND_ROBIN,
+    }
+    
+    print("🔧 正在初始化客户端实验...")
+    experiments = []
+    for client in clients:
+        strategy = strategy_map.get(client.exp_type, QueueStrategy.PRIORITY)
+        experiment = QueueExperiment(client, client.queue_manager, strategy)
+        try:
+            await experiment.setup()
+            experiments.append((client, experiment))
+            logger.info(f"Client {client.client_id}: Setup completed")
+        except Exception as e:
+            logger.error(f"Client {client.client_id}: Error during setup: {e}", exc_info=True)
+    
+    print(f"✓ 所有客户端初始化完成 ({len(experiments)}/{len(clients)})")
+    
+    # 现在启动监控器 - 从这里开始计时
+    print("⏱️ 开始计时...")
     await monitor.start()
     
-    # 启动所有客户端
+    # 启动所有客户端的实验运行
     client_tasks = []
-    for client in clients:
-        task = asyncio.create_task(run_client_continuous(client, total_duration, logger))
+    for client, experiment in experiments:
+        task = asyncio.create_task(run_client_experiment(client, experiment, total_duration, logger))
         client_tasks.append(task)
     
     logger.info(f"Started {len(client_tasks)} client tasks")
@@ -183,9 +241,37 @@ async def run_realtime_experiment(clients: List,
     return monitor
 
 
+async def run_client_experiment(client, experiment, duration: int, logger: logging.Logger):
+    """运行已初始化的客户端实验"""
+    logger.info(f"Client {client.client_id}: Starting experiment, duration={duration}s")
+    
+    config_round = 0
+    
+    try:
+        logger.info(f"Client {client.client_id}: Starting round {config_round}")
+        result = await experiment.run(config_round)
+        if result:
+            client.results.append(result)
+        config_round += 1
+        logger.info(f"Client {client.client_id}: Completed round {config_round}")
+    except asyncio.CancelledError:
+        logger.info(f"Client {client.client_id}: Cancelled")
+    except Exception as e:
+        logger.error(f"Client {client.client_id}: Error in round {config_round}: {e}", exc_info=True)
+    
+    try:
+        await experiment.cleanup()
+    except Exception as e:
+        logger.warning(f"Client {client.client_id}: Cleanup warning: {e}")
+    
+    logger.info(f"Client {client.client_id}: Finished after {config_round} rounds")
+
+
 async def run_client_continuous(client, duration: int, logger: logging.Logger):
-    """持续运行客户端"""
+    """持续运行客户端（旧版本，保留兼容性）"""
     from experiment.queue_experiment import QueueExperiment
+    
+    logger.info(f"Client {client.client_id}: Starting run_client_continuous, duration={duration}s")
     
     start_time = time.time()
     
@@ -202,25 +288,39 @@ async def run_client_continuous(client, duration: int, logger: logging.Logger):
     exp_type = client.exp_type
     strategy = strategy_map.get(exp_type, QueueStrategy.PRIORITY)
     
-    experiment = QueueExperiment(client, client.queue_manager, strategy)
-    await experiment.setup()
+    logger.info(f"Client {client.client_id}: Creating QueueExperiment with strategy={strategy}")
+    
+    try:
+        experiment = QueueExperiment(client, client.queue_manager, strategy)
+        logger.info(f"Client {client.client_id}: QueueExperiment created, calling setup()")
+        await experiment.setup()
+        logger.info(f"Client {client.client_id}: Setup completed")
+    except Exception as e:
+        logger.error(f"Client {client.client_id}: Error during setup: {e}", exc_info=True)
+        return
     
     config_round = 0
+    
+    logger.info(f"Client {client.client_id}: Entering main loop")
     
     while time.time() - start_time < duration:
         if hasattr(client, 'realtime_monitor') and client.realtime_monitor:
             if not client.realtime_monitor.is_running:
+                logger.info(f"Client {client.client_id}: Monitor stopped, exiting loop")
                 break
         
         try:
+            logger.info(f"Client {client.client_id}: Starting round {config_round}")
             result = await experiment.run(config_round)
             if result:
                 client.results.append(result)
             config_round += 1
+            logger.info(f"Client {client.client_id}: Completed round {config_round}")
         except asyncio.CancelledError:
+            logger.info(f"Client {client.client_id}: Cancelled, exiting loop")
             break
         except Exception as e:
-            logger.error(f"Client {client.client_id}: Error in round {config_round}: {e}")
+            logger.error(f"Client {client.client_id}: Error in round {config_round}: {e}", exc_info=True)
             await asyncio.sleep(2)
     
     try:
@@ -633,10 +733,12 @@ def parse_args():
                         help='Total experiment duration in seconds (default: 600)')
     parser.add_argument('--interval', type=int, default=60,
                         help='Monitor interval in seconds (default: 60)')
-    parser.add_argument('--port', type=int, default=8000,
-                        help='vLLM server port (default: 8000)')
     parser.add_argument('--model', type=str, default='',
-                        help='Model name/path for tokenizer')
+                        help='Model path (e.g., /home/llm/model_hub/Qwen3-8B)')
+    parser.add_argument('--tensor-parallel', type=int, default=None,
+                        help='Tensor parallel size (default: from config)')
+    parser.add_argument('--max-num-seqs', type=int, default=None,
+                        help='Max number of sequences (default: from config)')
     parser.add_argument('--dataset', type=str, default='sharegpt',
                         help='Dataset to use (default: sharegpt)')
     parser.add_argument('--run-id', type=str, default='',
@@ -651,20 +753,33 @@ async def main():
     """主函数"""
     args = parse_args()
     
+    # 配置根 logger，确保未配置的 logger 不会输出到控制台
+    # 只有 WARNING 及以上级别才会输出到控制台
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.WARNING)
+    
     # 设置日志
     logger = setup_logging(args.strategy)
     
+    # 这些重要信息使用 print 输出到控制台
+    print("="*60)
+    print("Realtime Benchmark Configuration")
+    print(f"  Scenario: {args.scenario}")
+    print(f"  Strategy: {args.strategy}")
+    print(f"  Duration: {args.duration}s ({args.duration/60:.1f} min)")
+    print(f"  Monitor Interval: {args.interval}s")
+    print("="*60)
+    
+    # 同时记录到日志文件
     logger.info("="*60)
     logger.info("Realtime Benchmark Configuration")
     logger.info(f"  Scenario: {args.scenario}")
     logger.info(f"  Strategy: {args.strategy}")
     logger.info(f"  Duration: {args.duration}s ({args.duration/60:.1f} min)")
     logger.info(f"  Monitor Interval: {args.interval}s")
-    logger.info(f"  Port: {args.port}")
     logger.info("="*60)
     
     # 更新全局配置
-    GLOBAL_CONFIG['port'] = [args.port]
     if args.model:
         GLOBAL_CONFIG['request_model_name'] = args.model
     
@@ -680,6 +795,24 @@ async def main():
         logger.error(f"Failed to load scenario config: {e}")
         return
     
+    # 启动 vLLM 引擎
+    engine_manager = VLLMEngineManager()
+    try:
+        engine = await engine_manager.start_engine(
+            model_path=args.model if args.model else None,
+            tensor_parallel_size=args.tensor_parallel,
+            max_num_seqs=args.max_num_seqs,
+            log_level="WARNING",
+            suppress_engine_logs=True
+        )
+        # 将引擎存储到全局配置中，供 RequestQueueManager 使用
+        GLOBAL_CONFIG['vllm_engine'] = engine
+        logger.info("vLLM engine started and stored in GLOBAL_CONFIG")
+    except Exception as e:
+        logger.error(f"Failed to start vLLM engine: {e}")
+        print(f"❌ 启动 vLLM 引擎失败: {e}")
+        return
+    
     # 初始化分词器
     try:
         from transformers import AutoTokenizer
@@ -691,27 +824,23 @@ async def main():
         tokenizer = lambda x, **kwargs: type('obj', (object,), {'input_ids': [[0]*len(x.split())]})()
     
     # 加载数据集
+    print("📂 正在加载数据集...")
     try:
         formatted_json_data = formated_json(args.dataset, "default", tokenizer)
+        print(f"✓ 数据集加载完成 ({len(formatted_json_data)} samples)")
         logger.info(f"Loaded dataset: {args.dataset} ({len(formatted_json_data)} samples)")
     except Exception as e:
         logger.error(f"Failed to load dataset: {e}")
-        return
-    
-    # 初始化OpenAI客户端
-    try:
-        openai_clients = initialize_clients(args.port)
-        logger.info(f"Initialized {len(openai_clients)} OpenAI clients")
-    except Exception as e:
-        logger.error(f"Failed to initialize OpenAI clients: {e}")
+        print(f"❌ 数据集加载失败: {e}")
+        await engine_manager.shutdown_engine()
         return
     
     # 创建结果队列
     result_queue = asyncio.Queue()
     
-    # 创建队列管理器
+    # 创建队列管理器（不再需要 OpenAI 客户端，直接使用 vLLM 引擎）
     queue_manager = RequestQueueManager()
-    queue_manager.set_openai_client(openai_clients)
+    queue_manager.set_openai_client(None)  # 明确设置为 None，使用 vLLM 引擎
     
     # 启动队列管理器
     queue_processing_task = asyncio.create_task(queue_manager.start_processing(num_workers=10))
@@ -719,11 +848,13 @@ async def main():
     
     if not queue_manager.is_running:
         logger.error("Failed to start queue manager")
+        await engine_manager.shutdown_engine()
         return
     
     logger.info("Queue manager started successfully")
     
     # 创建客户端
+    print("🔧 正在创建客户端...")
     clients = create_benchmark_clients(
         scenario_config=scenario_config,
         exp_type=args.strategy,
@@ -731,11 +862,17 @@ async def main():
         result_queue=result_queue,
         tokenizer=tokenizer,
         formatted_json_data=formatted_json_data,
-        openai_clients=openai_clients,
+        openai_clients=None,  # 不再使用 OpenAI 客户端
         duration=args.duration
     )
     
+    print(f"✓ 已创建 {len(clients)} 个客户端")
     logger.info(f"Created {len(clients)} benchmark clients")
+    
+    # 所有准备工作完成，现在开始实验
+    print("="*60)
+    print(f"🚀 开始实验 (持续 {args.duration}s = {args.duration/60:.1f} 分钟)")
+    print("="*60)
     
     # 运行实时实验
     try:
@@ -768,6 +905,12 @@ async def main():
             await queue_processing_task
         except asyncio.CancelledError:
             pass
+        
+        # 关闭 vLLM 引擎
+        print("🔄 正在关闭 vLLM 引擎...")
+        await engine_manager.shutdown_engine()
+        GLOBAL_CONFIG['vllm_engine'] = None
+        print("✅ vLLM 引擎已关闭")
         
         logger.info("Cleanup completed")
 

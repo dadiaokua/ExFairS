@@ -1,0 +1,99 @@
+nohup: ignoring input
+
+╔════════════════════════════════════════════════════════════════╗
+║          vLLM Benchmark - 实时监控模式                         ║
+╠════════════════════════════════════════════════════════════════╣
+║  场景: scenario_I
+║  策略: QUEUE_ExFairS QUEUE_Justitia QUEUE_SLOGreedy QUEUE_VTC QUEUE_FCFS
+║  持续时间: 600s (10m 0s)
+║  监控间隔: 60s
+║  vLLM端口: 8000
+║  结果目录: /home/llm/github_project/vllm_benchmark/results/run_20260115_200609
+╚════════════════════════════════════════════════════════════════╝
+
+
+╔════════════════════════════════════════╗
+║  开始场景: scenario_I
+║  开始时间: 2026-01-15 20:06:09
+╚════════════════════════════════════════╝
+
+========================================
+🚀 运行 1/5: scenario_I + QUEUE_ExFairS
+⏰ 开始: 20:06:09
+========================================
+INFO 01-15 20:06:13 [__init__.py:256] Automatically detected platform cuda.
+Traceback (most recent call last):
+  File "/home/llm/github_project/vllm_benchmark/scripts/run_realtime_benchmark.py", line 35, in <module>
+    from util.JsonFormatterUtil import formated_json
+ImportError: cannot import name 'formated_json' from 'util.JsonFormatterUtil' (/home/llm/github_project/vllm_benchmark/util/JsonFormatterUtil.py)
+✅ 完成 1/5 (耗时: 6s)
+⏱️  等待 5 秒...
+
+========================================
+🚀 运行 2/5: scenario_I + QUEUE_Justitia
+⏰ 开始: 20:06:20
+========================================
+INFO 01-15 20:06:23 [__init__.py:256] Automatically detected platform cuda.
+Traceback (most recent call last):
+  File "/home/llm/github_project/vllm_benchmark/scripts/run_realtime_benchmark.py", line 35, in <module>
+    from util.JsonFormatterUtil import formated_json
+ImportError: cannot import name 'formated_json' from 'util.JsonFormatterUtil' (/home/llm/github_project/vllm_benchmark/util/JsonFormatterUtil.py)
+✅ 完成 2/5 (耗时: 5s)
+⏱️  等待 5 秒...
+
+========================================
+🚀 运行 3/5: scenario_I + QUEUE_SLOGreedy
+⏰ 开始: 20:06:30
+========================================
+INFO 01-15 20:06:34 [__init__.py:256] Automatically detected platform cuda.
+Traceback (most recent call last):
+  File "/home/llm/github_project/vllm_benchmark/scripts/run_realtime_benchmark.py", line 35, in <module>
+    from util.JsonFormatterUtil import formated_json
+ImportError: cannot import name 'formated_json' from 'util.JsonFormatterUtil' (/home/llm/github_project/vllm_benchmark/util/JsonFormatterUtil.py)
+✅ 完成 3/5 (耗时: 6s)
+⏱️  等待 5 秒...
+
+========================================
+🚀 运行 4/5: scenario_I + QUEUE_VTC
+⏰ 开始: 20:06:41
+========================================
+INFO 01-15 20:06:45 [__init__.py:256] Automatically detected platform cuda.
+Traceback (most recent call last):
+  File "/home/llm/github_project/vllm_benchmark/scripts/run_realtime_benchmark.py", line 35, in <module>
+    from util.JsonFormatterUtil import formated_json
+ImportError: cannot import name 'formated_json' from 'util.JsonFormatterUtil' (/home/llm/github_project/vllm_benchmark/util/JsonFormatterUtil.py)
+✅ 完成 4/5 (耗时: 6s)
+⏱️  等待 5 秒...
+
+========================================
+🚀 运行 5/5: scenario_I + QUEUE_FCFS
+⏰ 开始: 20:06:52
+========================================
+INFO 01-15 20:06:56 [__init__.py:256] Automatically detected platform cuda.
+Traceback (most recent call last):
+  File "/home/llm/github_project/vllm_benchmark/scripts/run_realtime_benchmark.py", line 35, in <module>
+    from util.JsonFormatterUtil import formated_json
+ImportError: cannot import name 'formated_json' from 'util.JsonFormatterUtil' (/home/llm/github_project/vllm_benchmark/util/JsonFormatterUtil.py)
+✅ 完成 5/5 (耗时: 6s)
+
+📊 场景 scenario_I 完成，生成可视化...
+⚠️  可视化失败（不影响实验结果）
+
+╔════════════════════════════════════════════════════════╗
+║  ✨ 场景 scenario_I 完成
+║  成功: 5/5
+║  场景耗时: 50s
+╚════════════════════════════════════════════════════════╝
+
+╔════════════════════════════════════════════════════════════════╗
+║                       🎉 全部运行完成                           ║
+╠════════════════════════════════════════════════════════════════╣
+║  总运行数: 5
+║  成功: 5
+║  失败: 0
+╠════════════════════════════════════════════════════════════════╣
+║  总耗时: 50s
+║  开始时间: 2026-01-15 20:06:09
+║  结束时间: 2026-01-15 20:06:59
+║  结果目录: /home/llm/github_project/vllm_benchmark/results/run_20260115_200609
+╚════════════════════════════════════════════════════════════════╝

@@ -360,7 +360,11 @@ async def collect_single_response(queue_manager, client_id, request_info, global
 
 
 async def worker_with_queue(experiment, queue_manager, semaphore, results, worker_id, worker_json, qmp_per_worker):
-    """使用队列管理器的worker函数 - 批量提交模式"""
+    """使用队列管理器的worker函数 - 并行提交和收集模式
+    
+    改进：请求提交和响应收集并行进行，而不是串行。
+    这样监控器可以实时收到请求完成的数据，而不是等所有请求提交完成后才开始收集。
+    """
     assert worker_json is not None, "sample_content is None!"
     assert isinstance(worker_json, list), f"sample_content is not a list! type={type(worker_json)}"
     assert len(worker_json) > 0, "sample_content is empty!"
@@ -383,127 +387,148 @@ async def worker_with_queue(experiment, queue_manager, semaphore, results, worke
     # 预先计算所有请求的时间点
     request_times = calculate_all_request_times(experiment, qmp_per_worker)
 
-    # 第一阶段：按时间点提交所有请求到队列
-    experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: Starting request submission phase")
-    
-    for target_time in request_times:
-        if time.time() - global_start_time >= experiment.round_time:
-            break
-        current_time = time.time()
-        if target_time <= current_time:
-            # 如果目标时间已过，直接发送请求
-            drift_time = current_time - target_time
-        else:
-            # 如果还没到目标时间，先sleep
-            sleep_time = target_time - current_time
-            if sleep_time > 0:
-                await asyncio.sleep(sleep_time)
-            else:
-                experiment.logger.warning(
-                    f"Client {main_client_id}: Warning: Negative sleep time detected: {sleep_time:.6f} seconds")
-                continue
-
-        # 提交请求到队列（不等待响应）
-        request = random.choice(worker_json)
-        priority = experiment.client.priority
-        # 使用唯一的request_id生成函数
-        request_id = generate_unique_request_id(main_client_id, f"worker_{worker_id}")
-
-        # 直接提交请求，不等待
-        try:
-            submitted_request_id = await queue_manager.submit_request(
-                client_id=client_id,
-                worker_id=f"worker_{worker_id}",
-                request_content=request,
-                experiment=experiment,
-                priority=priority,
-                start_time=time.time(),
-                request_id=request_id
-            )
-            
-            submitted_requests.append({
-                "request_id": submitted_request_id,
-                "submit_time": time.time(),
-                "status": "submitted"
-            })
-            request_count += 1
-            
-        except Exception as e:
-            experiment.logger.error(f"Error submitting request {request_id}: {e}")
-
-    submission_time = time.time() - global_start_time
-    experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: Submitted {request_count} requests in {submission_time:.2f}s")
-
-    # 第二阶段：并发收集所有响应（非阻塞模式）
-    experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: Starting response collection phase")
-    
+    # 用于存储收集结果
     collected_results = []
-    
-    # 创建收集任务，每个任务尝试收集一个响应
-    collection_tasks = []
-    for request_info in submitted_requests:
-        task = asyncio.create_task(
-            collect_single_response(queue_manager, client_id, request_info, global_start_time, experiment)
-        )
-        collection_tasks.append(task)
-    
-    # 并发等待所有收集任务，但有总体超时控制
-    start_collection_time = time.time()
+    # 用于存储活跃的收集任务
+    active_collection_tasks = set()
+    # 收集任务计数
     completed_tasks = 0
+
+    experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: Starting parallel submission and collection")
     
-    while collection_tasks and completed_tasks < len(submitted_requests):
+    # 定义一个内部函数来处理单个响应收集
+    async def collect_and_process(request_info):
+        nonlocal completed, completed_tasks
+        try:
+            result, req_info = await collect_single_response(
+                queue_manager, client_id, request_info, global_start_time, experiment
+            )
+            if result:
+                output_tokens = result[0]
+                tokens_counter.add(output_tokens)
+                collected_results.append(result)
+                completed += 1
+            completed_tasks += 1
+            return result
+        except asyncio.CancelledError:
+            # 任务被取消，标记请求状态
+            if "end_time" not in request_info:
+                request_info["status"] = "cancelled"
+                request_info["end_time"] = time.time()
+            completed_tasks += 1
+            return None
+        except Exception as e:
+            experiment.logger.error(f"Error in collect_and_process: {e}")
+            if "end_time" not in request_info:
+                request_info["status"] = "error"
+                request_info["end_time"] = time.time()
+            completed_tasks += 1
+            return None
+
+    # 并行进行请求提交和响应收集
+    request_idx = 0
+    total_requests = len(request_times)
+    
+    while True:
         current_elapsed = time.time() - global_start_time
         if current_elapsed >= experiment.round_time:
-            experiment.logger.warning(f"Client {main_client_id} Worker {worker_id}: Round time exceeded during collection phase, stopping collection")
-            # 取消所有未完成的收集任务
-            for task in collection_tasks:
-                if not task.done():
-                    task.cancel()
+            experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: Round time reached, stopping")
             break
         
-        # 等待任何一个任务完成，最多等待1秒
-        collection_timeout = min(1.0, experiment.round_time - current_elapsed)
-        if collection_timeout <= 0:
-            break
+        # 1. 检查是否需要提交新请求
+        while request_idx < total_requests:
+            target_time = request_times[request_idx]
+            current_time = time.time()
             
-        try:
-            done, pending = await asyncio.wait(
-                collection_tasks, 
-                timeout=collection_timeout,
-                return_when=asyncio.FIRST_COMPLETED
-            )
-            
-            # 处理已完成的任务
-            for task in done:
+            if current_time - global_start_time >= experiment.round_time:
+                break
+                
+            if target_time <= current_time:
+                # 目标时间已过，直接提交请求
+                drift_time = current_time - target_time
+                
+                # 提交请求
+                request = random.choice(worker_json)
+                priority = experiment.client.priority
+                request_id = generate_unique_request_id(main_client_id, f"worker_{worker_id}")
+                
                 try:
-                    result, req_info = await task
-                    if result:
-                        output_tokens = result[0]
-                        new_total = tokens_counter.add(output_tokens)
-                        collected_results.append(result)
-                        completed += 1
+                    submitted_request_id = await queue_manager.submit_request(
+                        client_id=client_id,
+                        worker_id=f"worker_{worker_id}",
+                        request_content=request,
+                        experiment=experiment,
+                        priority=priority,
+                        start_time=time.time(),
+                        request_id=request_id
+                    )
                     
-                    completed_tasks += 1
+                    request_info = {
+                        "request_id": submitted_request_id,
+                        "submit_time": time.time(),
+                        "status": "submitted"
+                    }
+                    submitted_requests.append(request_info)
+                    request_count += 1
+                    
+                    # 立即创建收集任务（并行收集）
+                    task = asyncio.create_task(collect_and_process(request_info))
+                    active_collection_tasks.add(task)
+                    task.add_done_callback(active_collection_tasks.discard)
+                    
                 except Exception as e:
-                    experiment.logger.error(f"Error processing completed collection task: {e}")
-                    completed_tasks += 1
-            
-            # 更新任务列表，移除已完成的任务
-            collection_tasks = [task for task in collection_tasks if not task.done()]
-            
-        except asyncio.TimeoutError:
-            # 超时，继续循环检查round time
-            continue
+                    experiment.logger.error(f"Error submitting request {request_id}: {e}")
+                
+                request_idx += 1
+            else:
+                # 还没到下一个请求的时间，退出内层循环
+                break
+        
+        # 2. 检查是否所有工作都完成了
+        all_submitted = request_idx >= total_requests
+        all_collected = completed_tasks >= request_count if request_count > 0 else all_submitted
+        
+        if all_submitted and all_collected:
+            experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: All requests submitted and collected")
+            break
+        
+        # 3. 计算下一个请求的等待时间
+        if request_idx < total_requests:
+            next_request_time = request_times[request_idx]
+            wait_time = max(0.01, next_request_time - time.time())
+            wait_time = min(wait_time, 0.1)  # 最多等待0.1秒，保持响应性
+        else:
+            # 所有请求已提交，等待收集完成
+            wait_time = 0.1
+        
+        # 4. 短暂等待，让出控制权给其他协程（包括收集任务）
+        await asyncio.sleep(wait_time)
     
-    # 收集完成后，检查哪些请求没有被成功收集
-    for request_info in submitted_requests:
-        # 如果没有end_time，说明请求未完成，设置状态和结束时间
-        if "end_time" not in request_info:
-            request_info["status"] = "uncompleted"
-            request_info["end_time"] = time.time()
-
-    collection_time = time.time() - start_collection_time
-    experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: Collection phase completed in {collection_time:.2f}s, collected {len(collected_results)} results")
+    # 等待剩余的收集任务完成（带超时）
+    if active_collection_tasks:
+        remaining_time = max(0, experiment.round_time - (time.time() - global_start_time))
+        if remaining_time > 0:
+            experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: Waiting for {len(active_collection_tasks)} remaining collection tasks")
+            try:
+                done, pending = await asyncio.wait(
+                    active_collection_tasks,
+                    timeout=remaining_time,
+                    return_when=asyncio.ALL_COMPLETED
+                )
+                # 取消未完成的任务
+                for task in pending:
+                    task.cancel()
+            except Exception as e:
+                experiment.logger.error(f"Error waiting for collection tasks: {e}")
+        else:
+            # 时间已到，取消所有未完成的任务
+            for task in active_collection_tasks:
+                if not task.done():
+                    task.cancel()
+    
+    total_time = time.time() - global_start_time
+    experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: Completed in {total_time:.2f}s, "
+                          f"submitted={request_count}, collected={len(collected_results)}")
 
     # 将收集到的结果添加到results中
     results.extend(collected_results)
@@ -516,7 +541,7 @@ async def worker_with_queue(experiment, queue_manager, semaphore, results, worke
         # 添加所有需要abort的请求ID
         abort_request_ids = set()
         for req_info in submitted_requests:
-            if req_info["status"] in ["submitted", "timeout", "failed", "uncompleted"]:
+            if req_info["status"] in ["submitted", "timeout", "failed", "uncompleted", "cancelled", "error"]:
                 abort_request_ids.add(req_info["request_id"])
         
         experiment.client.active_request_ids.update(abort_request_ids)
@@ -536,7 +561,7 @@ async def worker_with_queue(experiment, queue_manager, semaphore, results, worke
     total_elapsed_time = time.time() - global_start_time
     failed_count = len([r for r in submitted_requests if r["status"] == "failed"])
     timeout_count = len([r for r in submitted_requests if r["status"] == "timeout"])
-    uncompleted_count = len([r for r in submitted_requests if r["status"] == "uncompleted"])
+    uncompleted_count = len([r for r in submitted_requests if r["status"] in ["uncompleted", "cancelled", "error"]])
 
     experiment.logger.info(
         f"Client {main_client_id} Worker {worker_id}: Total requests: {request_count}, Completed: {completed}, Failed: {failed_count}, Timeout: {timeout_count}, Uncompleted: {uncompleted_count}")

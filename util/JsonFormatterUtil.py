@@ -1,4 +1,7 @@
 import os
+import pickle
+import hashlib
+import logging
 
 from config.Config import GLOBAL_CONFIG
 
@@ -16,7 +19,13 @@ import threading
 
 from datasets import load_dataset
 from transformers import AutoTokenizer
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+
+logger = logging.getLogger(__name__)
+
+# 全局数据集缓存
+_dataset_cache: Dict[str, Any] = {}
+_cache_lock = threading.Lock()
 
 
 class QAJsonFormatter:
@@ -172,10 +181,90 @@ class QAJsonFormatter:
         return sampled_prompts
 
 
-async def prepare_benchmark_data(client_type, tokenizer):
-    """Prepare and format data for benchmarking"""
+def get_cache_key(client_type: str, dataset_name: str) -> str:
+    """生成缓存键"""
+    return f"{dataset_name}_{client_type}"
+
+
+def get_cached_dataset(cache_key: str) -> Optional[Any]:
+    """从内存缓存获取数据集"""
+    with _cache_lock:
+        if cache_key in _dataset_cache:
+            logger.info(f"从内存缓存加载数据集: {cache_key}")
+            return _dataset_cache[cache_key]
+    return None
+
+
+def set_cached_dataset(cache_key: str, data: Any):
+    """将数据集存入内存缓存"""
+    with _cache_lock:
+        _dataset_cache[cache_key] = data
+        logger.info(f"数据集已缓存到内存: {cache_key}")
+
+
+def load_cached_dataset_from_file(cache_dir: str, cache_key: str) -> Optional[Any]:
+    """从文件缓存加载数据集"""
+    cache_file = os.path.join(cache_dir, f"{cache_key}.pkl")
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'rb') as f:
+                data = pickle.load(f)
+            logger.info(f"从文件缓存加载数据集: {cache_file}")
+            return data
+        except Exception as e:
+            logger.warning(f"加载文件缓存失败: {e}")
+    return None
+
+
+def save_dataset_to_file_cache(cache_dir: str, cache_key: str, data: Any):
+    """将数据集保存到文件缓存"""
+    os.makedirs(cache_dir, exist_ok=True)
+    cache_file = os.path.join(cache_dir, f"{cache_key}.pkl")
+    try:
+        with open(cache_file, 'wb') as f:
+            pickle.dump(data, f)
+        logger.info(f"数据集已保存到文件缓存: {cache_file}")
+    except Exception as e:
+        logger.warning(f"保存文件缓存失败: {e}")
+
+
+async def prepare_benchmark_data(client_type, tokenizer, use_cache: bool = True, cache_dir: str = None):
+    """Prepare and format data for benchmarking
+    
+    Args:
+        client_type: 客户端类型 (short/long/mix/default)
+        tokenizer: 分词器
+        use_cache: 是否使用缓存
+        cache_dir: 缓存目录，默认为项目根目录下的 .cache
+    """
+    if cache_dir is None:
+        cache_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".cache", "datasets")
+    
+    cache_key = get_cache_key(client_type, "benchmark")
+    
+    # 1. 先检查内存缓存
+    if use_cache:
+        cached = get_cached_dataset(cache_key)
+        if cached is not None:
+            print(f"✓ 使用内存缓存的数据集 ({len(cached[0])} samples)")
+            return cached
+        
+        # 2. 检查文件缓存
+        cached = load_cached_dataset_from_file(cache_dir, cache_key)
+        if cached is not None:
+            set_cached_dataset(cache_key, cached)  # 同时存入内存缓存
+            print(f"✓ 从文件缓存加载数据集 ({len(cached[0])} samples)")
+            return cached
+    
+    print("📂 正在加载数据集...")
+    
     # Load dataset configuration
-    dataset2prompt = json.load(open("../config/dataset2prompt.json", "r"))
+    # 使用项目根目录的相对路径（脚本已经 chdir 到项目根目录）
+    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "dataset2prompt.json")
+    if not os.path.exists(config_path):
+        # 备选：直接使用相对路径
+        config_path = "config/dataset2prompt.json"
+    dataset2prompt = json.load(open(config_path, "r"))
 
     # Get data files
     time_data, data_path, jsonl_files = open_jsonl_file(client_type, dataset2prompt)
@@ -191,7 +280,15 @@ async def prepare_benchmark_data(client_type, tokenizer):
             tokenizer, dataset2prompt, GLOBAL_CONFIG.get('prompt_max_len', 10000), jsonl_files, data_path, max_samples,
             client_type)
 
-        return formatted_json, time_data
+        result = (formatted_json, time_data)
+        
+        # 缓存结果
+        if use_cache and formatted_json:
+            set_cached_dataset(cache_key, result)
+            save_dataset_to_file_cache(cache_dir, cache_key, result)
+            print(f"✓ 数据集已加载并缓存 ({len(formatted_json)} samples)")
+        
+        return result
     except Exception as e:
         print(f"Error: {str(e)}")
         print("详细错误信息:")
@@ -200,10 +297,23 @@ async def prepare_benchmark_data(client_type, tokenizer):
 
 
 def open_jsonl_file(client_type, datasets):
-    if client_type == "short":
-        dataset_path = "../sharegpt_gpt4/"
+    # 数据集路径配置 - 优先使用绝对路径
+    # 可配置的数据集根目录
+    DATASET_ROOT = os.environ.get('DATASET_ROOT', '/home/llm/datasets_hub')
+    
+    if client_type == "short" or client_type == "mix" or client_type == "default":
+        # 短请求和混合请求使用 sharegpt 数据集
+        dataset_path = os.path.join(DATASET_ROOT, "sharegpt_gpt4")
     else:
-        dataset_path = "../longbench/"
+        # 长请求使用 longbench 数据集
+        dataset_path = os.path.join(DATASET_ROOT, "longbench")
+    
+    # 备选路径（兼容旧配置）
+    if not os.path.exists(dataset_path):
+        if client_type == "short" or client_type == "mix" or client_type == "default":
+            dataset_path = "../sharegpt_gpt4/"
+        else:
+            dataset_path = "../longbench/"
 
     if not os.path.exists(dataset_path):
         print(f"目录 {dataset_path} 不存在")
@@ -252,10 +362,29 @@ def load_time_data(target_qps=None):
         target_qps: 可选的目标QPS，用于规范化时间间隔
     """
     try:
-        timedata = load_dataset(
-            "/Users/myrick/dataset_hub/datasets--lmsys--chatbot_arena_conversations/snapshots/1b6335d42a1d2c7e34870c905d03ab964f7f2bd8/data/"
-        ).data['train']['tstamp'].to_pylist()
-
+        # 可配置的数据集根目录
+        DATASET_ROOT = os.environ.get('DATASET_ROOT', '/home/llm/datasets_hub')
+        
+        # 尝试多个可能的路径
+        possible_paths = [
+            os.path.join(DATASET_ROOT, "lmsys-chat-1m/datasets--lmsys--lmsys-chat-1m/snapshots/200748d9d3cddcc9d782887541057aca0b18c5da/data"),
+            os.path.join(DATASET_ROOT, "lmsys-chat-1m"),
+            "/Users/myrick/dataset_hub/datasets--lmsys--chatbot_arena_conversations/snapshots/1b6335d42a1d2c7e34870c905d03ab964f7f2bd8/data/",  # 兼容旧路径
+        ]
+        
+        timedata = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                try:
+                    timedata = load_dataset(path).data['train']['tstamp'].to_pylist()
+                    break
+                except Exception:
+                    continue
+        
+        if timedata is None:
+            print(f"Warning: Could not load time data from any path, using default intervals")
+            return [1.0]
+        
         return process_timestamps(timedata, target_qps)
 
     except Exception as e:
@@ -369,3 +498,41 @@ if __name__ == "__main__":
             print(f"Long prompts saved to {long_prompts_path}")
     else:
         print("Failed to prepare long benchmark data")
+
+
+def formated_json(dataset_name, client_type, tokenizer):
+    """
+    Wrapper function for preparing benchmark data.
+    
+    Args:
+        dataset_name: Name of the dataset (not used in current implementation)
+        client_type: Type of client ('short', 'long', or 'default')
+        tokenizer: Tokenizer to use
+    
+    Returns:
+        List of formatted JSON data
+    """
+    # Map 'default' to 'short' for backward compatibility
+    if client_type == 'default':
+        client_type = 'short'
+    
+    # Check if we're already in an event loop
+    try:
+        loop = asyncio.get_running_loop()
+        # We're in an existing event loop, create a new task
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(
+                asyncio.run, 
+                prepare_benchmark_data(client_type, tokenizer)
+            )
+            result = future.result()
+    except RuntimeError:
+        # No event loop running, safe to use asyncio.run()
+        result = asyncio.run(prepare_benchmark_data(client_type, tokenizer))
+    
+    if result:
+        formatted_json, _ = result
+        return formatted_json
+    else:
+        return []
