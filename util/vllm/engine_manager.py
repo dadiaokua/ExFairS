@@ -161,16 +161,47 @@ class VLLMEngineManager:
         return self.engine
 
     async def shutdown_engine(self):
-        """关闭引擎"""
+        """关闭引擎并释放GPU内存"""
         if self.engine:
             try:
+                # 1. 先调用引擎的 shutdown 方法
                 if hasattr(self.engine, 'shutdown'):
                     await self.engine.shutdown()
-                    logger.info("✓ 引擎清理完成")
+                    logger.info("✓ 引擎 shutdown 调用完成")
             except Exception as e:
-                logger.warning(f"引擎清理时出现警告: {e}")
+                logger.warning(f"引擎 shutdown 时出现警告: {e}")
             finally:
                 self.engine = None
+        
+        # 2. 强制 Python 垃圾回收
+        import gc
+        gc.collect()
+        gc.collect()  # 多次调用确保清理完全
+        
+        # 3. 清理 CUDA 缓存
+        try:
+            import torch
+            if torch.cuda.is_available():
+                # 同步所有 CUDA 流，确保所有操作完成
+                for i in range(torch.cuda.device_count()):
+                    torch.cuda.set_device(i)
+                    torch.cuda.synchronize()
+                
+                # 清空 CUDA 缓存
+                torch.cuda.empty_cache()
+                
+                # 重置所有统计信息
+                for i in range(torch.cuda.device_count()):
+                    torch.cuda.reset_peak_memory_stats(i)
+                
+                logger.info("✓ CUDA 缓存已清空")
+        except Exception as e:
+            logger.warning(f"CUDA 清理时出现警告: {e}")
+        
+        # 4. 再次垃圾回收（清理 CUDA 对象）
+        gc.collect()
+        
+        logger.info("✓ 引擎和 GPU 资源清理完成")
 
     async def create_engine(self, 
                            model_path: str = None,

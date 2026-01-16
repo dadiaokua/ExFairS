@@ -284,8 +284,8 @@ failed_runs=()
 
 # 时间预测（每次实验约需要 DURATION + 60秒启动/关闭时间，策略间等待5秒）
 ENGINE_OVERHEAD=60  # 引擎启动和关闭时间
-STRATEGY_WAIT=5     # 策略之间等待时间
-SCENARIO_WAIT=5     # 场景之间等待时间
+STRATEGY_WAIT=10    # 策略之间等待时间（增加以确保GPU内存释放）
+SCENARIO_WAIT=10    # 场景之间等待时间（增加以确保GPU内存释放）
 VIS_TIME=10         # 可视化时间
 
 # 单个实验时间 = 持续时间 + 引擎开销
@@ -378,8 +378,8 @@ for scenario in "${SCENARIO_ARRAY[@]}"; do
             [[ "${EXP_ARRAY[$i]}" == "$exp" ]] && exp_index=$i && break
         done
         if [[ $((exp_index + 1)) -lt ${#EXP_ARRAY[@]} ]]; then
-            echo "⏱️  等待 5 秒..." | tee -a "$LOG_FILE"
-            sleep 5
+            echo "⏱️  等待 $STRATEGY_WAIT 秒（确保 GPU 内存释放）..." | tee -a "$LOG_FILE"
+            sleep $STRATEGY_WAIT
         fi
     done
     
@@ -409,8 +409,8 @@ for scenario in "${SCENARIO_ARRAY[@]}"; do
     
     # 场景之间等待（scenario_index 已在循环开始时计算）
     if [[ $((scenario_index + 1)) -lt ${#SCENARIO_ARRAY[@]} ]]; then
-        echo "⏸️  场景间隔，等待 5 秒..." | tee -a "$LOG_FILE"
-        sleep 5
+        echo "⏸️  场景间隔，等待 $SCENARIO_WAIT 秒（确保 GPU 内存完全释放）..." | tee -a "$LOG_FILE"
+        sleep $SCENARIO_WAIT
     fi
 done
 

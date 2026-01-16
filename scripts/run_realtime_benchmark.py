@@ -793,7 +793,7 @@ async def main():
         logger.info(f"Loaded scenario config: {args.scenario}")
     except Exception as e:
         logger.error(f"Failed to load scenario config: {e}")
-        return
+        sys.exit(1)  # 返回非零退出码表示失败
     
     # 启动 vLLM 引擎
     engine_manager = VLLMEngineManager()
@@ -811,7 +811,7 @@ async def main():
     except Exception as e:
         logger.error(f"Failed to start vLLM engine: {e}")
         print(f"❌ 启动 vLLM 引擎失败: {e}")
-        return
+        sys.exit(1)  # 返回非零退出码表示失败
     
     # 初始化分词器
     try:
@@ -833,7 +833,7 @@ async def main():
         logger.error(f"Failed to load dataset: {e}")
         print(f"❌ 数据集加载失败: {e}")
         await engine_manager.shutdown_engine()
-        return
+        sys.exit(1)  # 返回非零退出码表示失败
     
     # 创建结果队列
     result_queue = asyncio.Queue()
@@ -849,7 +849,7 @@ async def main():
     if not queue_manager.is_running:
         logger.error("Failed to start queue manager")
         await engine_manager.shutdown_engine()
-        return
+        sys.exit(1)  # 返回非零退出码表示失败
     
     logger.info("Queue manager started successfully")
     

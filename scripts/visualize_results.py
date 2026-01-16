@@ -32,6 +32,7 @@ STRATEGY_NAMES = {
     'exfairs': 'ExFairS',
     'justitia': 'Justitia',
     'slo_greedy': 'SLO-Greedy',
+    'slogreedy': 'SLO-Greedy',  # 支持两种命名方式
     'fcfs': 'FCFS'
 }
 # 学术风格配色（按图片配色）
@@ -41,6 +42,7 @@ STRATEGY_COLORS = {
     'exfairs': '#8da0cb',  # 蓝紫色
     'justitia': '#e78ac3', # 粉紫色
     'slo_greedy': '#a6d854', # 黄绿色
+    'slogreedy': '#a6d854',  # 支持两种命名方式
     'fcfs': '#fc8d62'      # 橙色
 }
 # 用户颜色（学术风格浅色）
@@ -68,7 +70,8 @@ def find_results_in_run(run_dir: str, scenario_name: str) -> dict:
         return {}
     
     results_by_strategy = {}
-    strategies = ['rr', 'vtc', 'exfairs', 'justitia', 'slo_greedy', 'fcfs']
+    # 支持两种命名方式：slo_greedy 和 slogreedy
+    strategies = ['rr', 'vtc', 'exfairs', 'justitia', 'slo_greedy', 'slogreedy', 'fcfs']
     
     for strategy in strategies:
         strategy_path = scenario_path / strategy
@@ -188,7 +191,7 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
         print("[WARNING] No data to plot")
         return None
     
-    # 确保策略顺序一致
+    # 确保策略顺序一致（支持两种命名方式）
     strategy_order = ['exfairs', 'justitia', 'slo_greedy', 'slogreedy', 'vtc', 'fcfs', 'rr']
     strategies = [s for s in strategy_order if s in strategies]
     
@@ -360,7 +363,7 @@ def plot_realtime_trends(scenario_name: str, run_dir: str, output_dir: str):
         print("[SKIP] Realtime trends visualization skipped (matplotlib not available)")
         return None
     
-    strategies = ['exfairs', 'justitia', 'slo_greedy', 'vtc', 'fcfs', 'rr']
+    strategies = ['exfairs', 'justitia', 'slo_greedy', 'slogreedy', 'vtc', 'fcfs', 'rr']
     strategy_data = {}
     
     # 收集每个策略的数据
@@ -480,7 +483,7 @@ def plot_safi_trends_legacy(scenario_name: str, run_dir: str, output_dir: str):
     """
     旧格式兼容：从 benchmark_results.json 中读取 SAFI 数据
     """
-    strategies = ['exfairs', 'justitia', 'slo_greedy', 'vtc', 'fcfs', 'rr']
+    strategies = ['exfairs', 'justitia', 'slo_greedy', 'slogreedy', 'vtc', 'fcfs', 'rr']
     strategy_data = {}
     
     for strategy in strategies:
@@ -561,7 +564,7 @@ def print_summary_table(metrics: dict, scenario_name: str):
     print(f" {scenario_name} - Strategy Comparison Summary")
     print(f"{'='*120}")
     
-    strategies = ['rr', 'vtc', 'exfairs', 'justitia', 'slo_greedy']
+    strategies = ['rr', 'vtc', 'exfairs', 'justitia', 'slo_greedy', 'slogreedy']
     strategies = [s for s in strategies if s in metrics]
     
     if not strategies:
