@@ -189,7 +189,7 @@ def plot_comparison(metrics: dict, scenario_name: str, output_dir: str, results:
         return None
     
     # 确保策略顺序一致
-    strategy_order = ['rr', 'vtc', 'exfairs', 'justitia', 'slo_greedy']
+    strategy_order = ['exfairs', 'justitia', 'slo_greedy', 'slogreedy', 'vtc', 'fcfs', 'rr']
     strategies = [s for s in strategy_order if s in strategies]
     
     colors = [STRATEGY_COLORS.get(s, '#999999') for s in strategies]

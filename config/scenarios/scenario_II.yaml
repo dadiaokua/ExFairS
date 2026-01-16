@@ -2,9 +2,9 @@
 # Scenario II: Mix 2 Clients - SLO不均匀分布
 # =============================================================================
 # 客户端: 2 Mix
-# QPM: 75, 75 (均匀分布)
-# SLO: 12s, 16s (不均匀分布，原15s/20s的80%)
-# 总 QPM: 150
+# QPM: 60, 60 (均匀分布)
+# SLO: 12s, 16s (不均匀分布)
+# 总 QPM: 120
 # =============================================================================
 
 name: "Scenario_II_Mix2_SLO_Imbalanced"
@@ -19,11 +19,11 @@ experiment:
 clients:
   - type: Mix
     count: 1
-    qpm: 75
+    qpm: 60
     slo: 12
   - type: Mix
     count: 1
-    qpm: 75
+    qpm: 60
     slo: 16
 
-# 总 QPM: 150
+# 总 QPM: 120

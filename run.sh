@@ -51,12 +51,12 @@ show_help() {
   - QUEUE_FCFS                  先到先服务
   - QUEUE_RR                    轮询调度
 
-可用场景 (支持数字或完整名称, 总QPM=150):
-  - 1 / scenario_I              Mix2: QPM不均 (40,110), SLO统一 (16s)
-  - 2 / scenario_II             Mix2: QPM均匀 (75,75), SLO不均 (12,16s)
-  - 3 / scenario_III            Mix4: QPM递增 (25-50), SLO统一 (12s)
-  - 4 / scenario_IV             Mix4: QPM均匀 (37-38), SLO递增 (8-16s)
-  - 5 / scenario_V              Mix6: 综合差异场景 (15-30 QPM, 8-13s SLO)
+可用场景 (支持数字或完整名称, 总QPM=120):
+  - 1 / scenario_I              Mix2: QPM不均 (30,90), SLO统一 (16s)
+  - 2 / scenario_II             Mix2: QPM均匀 (60,60), SLO不均 (12,16s)
+  - 3 / scenario_III            Mix4: QPM递增 (20-40), SLO统一 (12s)
+  - 4 / scenario_IV             Mix4: QPM均匀 (30), SLO递增 (8-16s)
+  - 5 / scenario_V              Mix6: 综合差异场景 (12-24 QPM, 8-13s SLO)
 
 示例:
   # 默认运行（场景1 + ExFairS）
@@ -229,7 +229,7 @@ done
 [[ -n "$SCENARIOS" ]] && SCENARIOS=$(map_scenarios "$SCENARIOS")
 
 # 默认值
-[[ -z "$SCENARIOS" && -z "$SINGLE_SCENARIO" ]] && SINGLE_SCENARIO="scenario_I"
+[[ -z "$SCENARIOS" && -z "$SINGLE_SCENARIO" ]] && SCENARIOS="scenario_I,scenario_II,scenario_III,scenario_IV,scenario_V"
 [[ -z "$EXPERIMENTS" ]] && EXPERIMENTS="QUEUE_ExFairS"
 
 # 如果只有单场景，转换为场景列表

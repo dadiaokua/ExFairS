@@ -2,9 +2,9 @@
 # Scenario V: Mix 6 Clients - 综合差异场景
 # =============================================================================
 # 客户端: 6 Mix
-# QPM: 15, 20, 25, 30, 30, 30 (差异化分布，2倍差异)
-# SLO: 8s, 10s, 11s, 11s, 13s, 13s (差异化分布，原值的80%)
-# 总 QPM: 150
+# QPM: 12, 16, 20, 24, 24, 24 (差异化分布，2倍差异)
+# SLO: 8s, 10s, 11s, 11s, 13s, 13s (差异化分布)
+# 总 QPM: 120
 # =============================================================================
 
 name: "Scenario_V_Mix6_Comprehensive"
@@ -19,27 +19,27 @@ experiment:
 clients:
   - type: Mix
     count: 1
-    qpm: 15
+    qpm: 12
     slo: 8
   - type: Mix
     count: 1
-    qpm: 20
+    qpm: 16
     slo: 10
   - type: Mix
     count: 1
-    qpm: 25
+    qpm: 20
     slo: 11
   - type: Mix
     count: 1
-    qpm: 30
+    qpm: 24
     slo: 11
   - type: Mix
     count: 1
-    qpm: 30
+    qpm: 24
     slo: 13
   - type: Mix
     count: 1
-    qpm: 30
+    qpm: 24
     slo: 13
 
-# 总 QPM: 150
+# 总 QPM: 120
