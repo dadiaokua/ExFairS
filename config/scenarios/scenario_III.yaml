@@ -2,13 +2,13 @@
 # Scenario III: Mix 4 Clients - QPM递增分布
 # =============================================================================
 # 客户端: 4 Mix
-# QPM: 25, 35, 45, 55 (递增分布，2.2倍差异)
+# QPM: 30, 45, 55, 70 (递增分布，约2.3倍差异)
 # SLO: 9s (统一)
-# 总 QPM: 160
+# 总 QPM: 200
 # =============================================================================
 
 name: "Scenario_III_Mix4_QPM_Gradient"
-description: "Mix 4 Clients with gradient QPM (25-55)"
+description: "Mix 4 Clients with gradient QPM (30-70)"
 
 # 覆盖基础配置
 experiment:
@@ -19,11 +19,7 @@ experiment:
 clients:
   - type: Mix
     count: 1
-    qpm: 25
-    slo: 9
-  - type: Mix
-    count: 1
-    qpm: 35
+    qpm: 30
     slo: 9
   - type: Mix
     count: 1
@@ -33,5 +29,9 @@ clients:
     count: 1
     qpm: 55
     slo: 9
+  - type: Mix
+    count: 1
+    qpm: 70
+    slo: 9
 
-# 总 QPM: 160
+# 总 QPM: 200

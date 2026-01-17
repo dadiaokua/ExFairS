@@ -102,7 +102,7 @@ class RequestQueueManager:
         self.client_queues: Dict[str, asyncio.Queue] = {}  # 每个客户端的请求队列
 
         # 部分优先级配置
-        self.priority_insert_multiplier = 1  # 优先级倍数，优先级N可以往前插N*multiplier个位置
+        self.priority_insert_multiplier = 10  # 优先级倍数，优先级N可以往前插N*multiplier个位置
         self.max_priority_positions = 100  # 最大优先级插入位置限制
         self.priority_delay_enabled = False  # 禁用低优先级延迟（会损害SLO）
         self.max_priority_delay = 10  # 最大延迟秒数

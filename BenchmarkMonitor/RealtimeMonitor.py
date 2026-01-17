@@ -456,8 +456,8 @@ class RealtimeMonitor:
                 old_high = high_client.priority
                 old_low = low_client.priority
                 
-                high_client.priority = min(priority_max, high_client.priority + priority_change)
-                low_client.priority = max(priority_min, low_client.priority - priority_change)
+                high_client.priority = max(priority_min, high_client.priority - priority_change)
+                low_client.priority = min(priority_max, low_client.priority + priority_change)
                 
                 high_client.exchange_Resources_Times += 1
                 low_client.exchange_Resources_Times += 1
