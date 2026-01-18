@@ -2,9 +2,9 @@
 # Scenario II: Mix 2 Clients - SLO不均匀分布
 # =============================================================================
 # 客户端: 2 Mix
-# QPM: 100, 100 (均匀分布)
+# QPM: 75, 75 (均匀分布)
 # SLO: 8s, 12s (不均匀分布)
-# 总 QPM: 200
+# 总 QPM: 150
 # =============================================================================
 
 name: "Scenario_II_Mix2_SLO_Imbalanced"
@@ -12,18 +12,18 @@ description: "Mix 2 Clients with imbalanced SLO (8s vs 12s)"
 
 # 覆盖基础配置
 experiment:
-  request_timeout: 12
+  request_timeout: 15
   max_output_tokens: 512
 
 # 客户端配置
 clients:
   - type: Mix
     count: 1
-    qpm: 100
+    qpm: 75
     slo: 8
   - type: Mix
     count: 1
-    qpm: 100
+    qpm: 75
     slo: 12
 
-# 总 QPM: 200
+# 总 QPM: 150

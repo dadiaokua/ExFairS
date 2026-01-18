@@ -2,9 +2,9 @@
 # Scenario V: Mix 6 Clients - 综合差异场景
 # =============================================================================
 # 客户端: 6 Mix
-# QPM: 20, 25, 32, 37, 43, 43 (差异化分布，约2倍差异)
+# QPM: 15, 19, 24, 28, 32, 32 (差异化分布，约2倍差异)
 # SLO: 6s, 7s, 8s, 9s, 10s, 12s (差异化分布)
-# 总 QPM: 200
+# 总 QPM: 150
 # =============================================================================
 
 name: "Scenario_V_Mix6_Comprehensive"
@@ -12,34 +12,34 @@ description: "Mix 6 Clients with comprehensive differences"
 
 # 覆盖基础配置
 experiment:
-  request_timeout: 12
+  request_timeout: 15
   max_output_tokens: 512
 
 # 客户端配置
 clients:
   - type: Mix
     count: 1
-    qpm: 20
+    qpm: 15
     slo: 6
   - type: Mix
     count: 1
-    qpm: 25
+    qpm: 19
     slo: 7
   - type: Mix
     count: 1
-    qpm: 32
+    qpm: 24
     slo: 8
   - type: Mix
     count: 1
-    qpm: 37
+    qpm: 28
     slo: 9
   - type: Mix
     count: 1
-    qpm: 43
+    qpm: 32
     slo: 10
   - type: Mix
     count: 1
-    qpm: 43
+    qpm: 32
     slo: 12
 
-# 总 QPM: 200
+# 总 QPM: 150

@@ -110,8 +110,9 @@ def create_benchmark_clients(scenario_config: Dict, exp_type: str,
         for i in range(count):
             client_index = len(clients)
             
-            # 获取 max_output_tokens 配置
-            max_output_tokens = scenario_config.get('max_output_tokens', GLOBAL_CONFIG.get('max_output_tokens', 256))
+            # 获取 max_output_tokens 配置（先从 experiment 子配置读取）
+            max_output_tokens = scenario_config.get('experiment', {}).get('max_output_tokens',
+                              scenario_config.get('max_output_tokens', GLOBAL_CONFIG.get('max_output_tokens', 256)))
             
             # 如果 openai_clients 为 None，传入 None（使用直接引擎模式）
             openai_client = None
@@ -127,7 +128,8 @@ def create_benchmark_clients(scenario_config: Dict, exp_type: str,
                 tokenizer=tokenizer,
                 exp_type=exp_type,
                 distribution=GLOBAL_CONFIG.get('distribution', 'poisson'),
-                request_timeout=scenario_config.get('request_timeout', GLOBAL_CONFIG.get('request_timeout', 120)),
+                request_timeout=scenario_config.get('experiment', {}).get('request_timeout', 
+                              scenario_config.get('request_timeout', GLOBAL_CONFIG.get('request_timeout', 120))),
                 concurrency=GLOBAL_CONFIG.get('concurrency', 10),
                 round=1,
                 round_time=duration,
