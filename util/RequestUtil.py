@@ -139,7 +139,7 @@ async def make_request_direct_engine(engine, experiment, request, start_time=Non
             # 使用asyncio.wait_for设置超时（使用剩余时间）
             await asyncio.wait_for(process_generator(), timeout=remaining_timeout)
         except asyncio.TimeoutError:
-            experiment.logger.warning(f"Client {client_id}: 请求 {request_id} 超时 ({timeout_seconds}s)")
+            experiment.logger.warning(f"Client {client_id}: 请求 {request_id} 推理超时 ({remaining_timeout:.2f}s)")
             if hasattr(experiment, 'client') and hasattr(experiment.client, 'unregister_request_id'):
                 experiment.client.unregister_request_id(request_id)
             return None
@@ -593,12 +593,13 @@ async def worker_with_queue(experiment, queue_manager, semaphore, results, worke
         f"Client {main_client_id} Worker {worker_id}: Total elapsed time: {total_elapsed_time:.2f} seconds, Round time: {experiment.round_time:.2f} seconds")
     
     # 记录阶段时间到实验对象（用于后续分析）
+    # 注：由于采用并行提交和收集模式，submission_time 和 collection_time 近似等于 total_elapsed_time
     if not hasattr(experiment, 'phase_timings'):
         experiment.phase_timings = []
     experiment.phase_timings.append({
         'worker_id': worker_id,
-        'submission_time': submission_time,
-        'collection_time': collection_time,
+        'submission_time': total_elapsed_time,  # 并行模式下近似等于总时间
+        'collection_time': total_elapsed_time,  # 并行模式下近似等于总时间
         'total_time': total_elapsed_time,
         'configured_round_time': experiment.round_time,
         'request_count': request_count,
@@ -608,8 +609,6 @@ async def worker_with_queue(experiment, queue_manager, semaphore, results, worke
     
     # 打印阶段时间摘要
     experiment.logger.info(f"Client {main_client_id} Worker {worker_id}: ⏱️ Phase Timings:")
-    experiment.logger.info(f"  - Submission phase: {submission_time:.2f}s")
-    experiment.logger.info(f"  - Collection phase: {collection_time:.2f}s") 
     experiment.logger.info(f"  - Total elapsed: {total_elapsed_time:.2f}s (configured: {experiment.round_time:.0f}s)")
 
     return completed, drift_time, request_count
