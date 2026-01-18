@@ -19,7 +19,7 @@ RESULTS_BASE_DIR="$SCRIPT_DIR/results"
 
 # ========== 默认配置 ==========
 DEFAULT_DURATION=450        # 默认7.5分钟
-DEFAULT_INTERVAL=60         # 默认60秒监控间隔
+DEFAULT_INTERVAL=20         # 默认20秒监控间隔
 DEFAULT_MODEL="/home/llm/model_hub/Qwen3-8B"  # 模型路径（用于引擎启动和tokenizer）
 DEFAULT_DATASET="sharegpt"
 DEFAULT_TENSOR_PARALLEL=8   # 默认张量并行大小
@@ -36,7 +36,7 @@ show_help() {
   -s, --scenarios S1,S2,...     指定场景（逗号分隔）
   --scenario SCENARIO           指定单个场景
   --duration SECONDS            实验持续时间（秒，默认600=10分钟）
-  --interval SECONDS            监控间隔（秒，默认60）
+  --interval SECONDS            监控间隔（秒，默认10）
   --model MODEL                 模型路径（用于引擎启动和tokenizer）
   --tensor-parallel N           张量并行大小（默认8）
   --max-num-seqs N              最大并发序列数（默认128）
@@ -72,7 +72,7 @@ show_help() {
   $0 -e QUEUE_ExFairS,QUEUE_VTC -s 1,2,3
   
   # 自定义持续时间和监控间隔
-  $0 -e QUEUE_ExFairS --scenario 1 --duration 300 --interval 30
+  $0 -e QUEUE_ExFairS --scenario 1 --duration 300 --interval 10
 
   # 指定模型路径
   $0 -e QUEUE_ExFairS --scenario 1 --model /home/llm/model_hub/Qwen3-8B

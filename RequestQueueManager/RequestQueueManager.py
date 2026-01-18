@@ -100,6 +100,9 @@ class RequestQueueManager:
         
         # 为轮询策略维护每个客户端的队列
         self.client_queues: Dict[str, asyncio.Queue] = {}  # 每个客户端的请求队列
+        
+        # 【关键】存储客户端对象引用，用于动态获取优先级
+        self.client_objects: Dict[str, Any] = {}  # client_id -> BenchmarkClient对象
 
         # 部分优先级配置
         self.priority_insert_multiplier = 10  # 优先级倍数，优先级N可以往前插N*multiplier个位置
@@ -212,11 +215,20 @@ class RequestQueueManager:
         self.logger.info(f"Configured partial priority: multiplier={insert_multiplier}, max_positions={max_positions}, "
                         f"delay_enabled={delay_enabled}, max_delay={max_delay}")
 
-    async def register_client(self, client_id: str, client_type: str = "unknown"):
-        """注册客户端"""
+    async def register_client(self, client_id: str, client_type: str = "unknown", client_object=None):
+        """注册客户端
+        
+        Args:
+            client_id: 客户端ID
+            client_type: 客户端类型
+            client_object: BenchmarkClient对象引用（用于动态获取优先级）
+        """
         # 检查客户端是否已经存在，避免重复注册
         if client_id in self.response_queues:
             self.logger.debug(f"Client {client_id} already registered, skipping")
+            # 但如果提供了客户端对象，仍然更新引用
+            if client_object is not None:
+                self.client_objects[client_id] = client_object
             return
 
         self.response_queues[client_id] = asyncio.Queue()
@@ -234,6 +246,11 @@ class RequestQueueManager:
             'actual_tokens_used': 0
         }
         
+        # 存储客户端对象引用（用于动态获取优先级）
+        if client_object is not None:
+            self.client_objects[client_id] = client_object
+            self.logger.debug(f"Stored client object reference for {client_id}")
+        
         # 为轮询策略创建客户端队列
         if self.strategy == QueueStrategy.ROUND_ROBIN:
             self.client_queues[client_id] = asyncio.Queue(maxsize=self.max_queue_size // 10)  # 每个客户端队列较小
@@ -243,6 +260,20 @@ class RequestQueueManager:
         # 如果是轮询策略，更新客户端列表
         if self.strategy == QueueStrategy.ROUND_ROBIN:
             self._round_robin_clients = sorted(self.client_stats.keys())
+    
+    def get_client_current_priority(self, client_id: str) -> int:
+        """获取客户端的当前优先级（实时从客户端对象读取）
+        
+        Args:
+            client_id: 客户端ID
+            
+        Returns:
+            客户端当前优先级（数值越小优先级越高），默认为0
+        """
+        if client_id in self.client_objects:
+            client = self.client_objects[client_id]
+            return getattr(client, 'priority', 0)
+        return 0
 
     async def _monitor_queue_status(self):
         """队列状态监控协程"""
@@ -742,32 +773,37 @@ class RequestQueueManager:
             return None
 
     async def _get_priority_request(self) -> Optional[QueuedRequest]:
-        """部分优先级策略：从列表头部取出请求"""
+        """优先级策略：从列表头部取出请求（FIFO + 入队时部分优先级插入）
+        
+        注：优先级在入队时通过插入位置体现，取出时按 FIFO 顺序
+        监控间隔已缩短到 10 秒，新请求会使用更新后的优先级入队
+        """
         async with self.priority_queue_lock:
             self.logger.debug(f"Priority: Attempting to get request from priority queue (current size: {len(self.priority_queue_list)})")
             
-            if self.priority_queue_list:
-                request = self.priority_queue_list.pop(0)  # 从头部取出（FIFO基础上的部分优先级）
-                
-                self.logger.debug(f"Priority: Retrieved request {request.request_id} from {request.client_id} "
-                                f"(priority={request.priority}, remaining in queue: {len(self.priority_queue_list)})")
-
-                # 更新优先级分布缓存（减量更新）
-                if request.priority in self.priority_distribution_cache:
-                    old_count = self.priority_distribution_cache[request.priority]
-                    self.priority_distribution_cache[request.priority] -= 1
-                    if self.priority_distribution_cache[request.priority] <= 0:
-                        del self.priority_distribution_cache[request.priority]
-                        self.logger.debug(f"Priority: Removed priority {request.priority} from cache (was {old_count})")
-                    else:
-                        self.logger.debug(f"Priority: Updated cache for priority {request.priority}: {old_count} -> {self.priority_distribution_cache[request.priority]}")
-                else:
-                    self.logger.warning(f"Priority: Request priority {request.priority} not found in cache during removal")
-
-                return request
-            else:
+            if not self.priority_queue_list:
                 self.logger.debug("Priority: No requests in priority queue")
                 return None
+            
+            # FIFO：从头部取出请求
+            request = self.priority_queue_list.pop(0)
+            
+            self.logger.debug(f"Priority: Retrieved request {request.request_id} from {request.client_id} "
+                            f"(priority={request.priority}, remaining in queue: {len(self.priority_queue_list)})")
+
+            # 更新优先级分布缓存（减量更新）
+            if request.priority in self.priority_distribution_cache:
+                old_count = self.priority_distribution_cache[request.priority]
+                self.priority_distribution_cache[request.priority] -= 1
+                if self.priority_distribution_cache[request.priority] <= 0:
+                    del self.priority_distribution_cache[request.priority]
+                    self.logger.debug(f"Priority: Removed priority {request.priority} from cache (was {old_count})")
+                else:
+                    self.logger.debug(f"Priority: Updated cache for priority {request.priority}: {old_count} -> {self.priority_distribution_cache[request.priority]}")
+            else:
+                self.logger.warning(f"Priority: Request priority {request.priority} not found in cache during removal")
+
+            return request
 
     async def _get_round_robin_request(self) -> Optional[QueuedRequest]:
         """轮询策略：轮流处理不同客户端的请求"""
@@ -949,6 +985,19 @@ class RequestQueueManager:
     async def _process_request(self, request: QueuedRequest, worker_name) -> Any:
         """处理单个请求"""
         self.logger.debug(f"Worker {worker_name}: Starting to process request {request.request_id}")
+
+        # 【关键修复】检查总时间是否已超时（包括排队时间）
+        # 使用 experiment 的 request_timeout 作为总时间上限
+        total_elapsed = time.time() - request.submit_time
+        request_timeout = getattr(request.experiment, 'request_timeout', 120)
+        
+        if total_elapsed >= request_timeout:
+            self.logger.warning(f"Worker {worker_name}: Request {request.request_id} already timed out "
+                              f"(total_elapsed={total_elapsed:.2f}s >= timeout={request_timeout}s, "
+                              f"queue_wait={total_elapsed:.2f}s)")
+            self.client_stats[request.client_id]['failed_requests'] += 1
+            # 返回超时标记
+            return None
 
         # Justitia 策略：任务开始执行时加入 running_tasks
         if self.strategy == QueueStrategy.JUSTITIA:

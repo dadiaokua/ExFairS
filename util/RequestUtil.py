@@ -113,8 +113,19 @@ async def make_request_direct_engine(engine, experiment, request, start_time=Non
         request_output = None
         first_chunk_time = None
 
-        # 设置超时时间，使用experiment的request_timeout
-        timeout_seconds = getattr(experiment, 'request_timeout', 30.0)
+        # 【关键修复】计算剩余超时时间（总超时 - 已用时间）
+        # 这样排队时间也会被计入超时
+        total_timeout = getattr(experiment, 'request_timeout', 30.0)
+        elapsed_so_far = time.time() - start_time
+        remaining_timeout = max(1.0, total_timeout - elapsed_so_far)  # 至少保留1秒
+        
+        if elapsed_so_far >= total_timeout:
+            experiment.logger.warning(f"Client {client_id}: 请求 {request_id} 在推理前已超时 "
+                                    f"(elapsed={elapsed_so_far:.2f}s >= timeout={total_timeout}s)")
+            return None
+        
+        experiment.logger.debug(f"Client {client_id}: 请求 {request_id} 推理超时设置为 {remaining_timeout:.2f}s "
+                              f"(总超时={total_timeout}s, 已用={elapsed_so_far:.2f}s)")
         
         # 创建一个异步函数来处理生成器迭代
         async def process_generator():
@@ -125,8 +136,8 @@ async def make_request_direct_engine(engine, experiment, request, start_time=Non
                 request_output = output_chunk  # 保留最后一个输出作为最终结果
         
         try:
-            # 使用asyncio.wait_for设置超时
-            await asyncio.wait_for(process_generator(), timeout=timeout_seconds)
+            # 使用asyncio.wait_for设置超时（使用剩余时间）
+            await asyncio.wait_for(process_generator(), timeout=remaining_timeout)
         except asyncio.TimeoutError:
             experiment.logger.warning(f"Client {client_id}: 请求 {request_id} 超时 ({timeout_seconds}s)")
             if hasattr(experiment, 'client') and hasattr(experiment.client, 'unregister_request_id'):
@@ -240,6 +251,16 @@ async def make_request_http_client(client, experiment, request, start_time=None,
         # 🔥 支持两种数据格式：字典（提取prompt）或字符串
         actual_prompt = request.get('prompt', request) if isinstance(request, dict) else request
 
+        # 【关键修复】计算剩余超时时间（总超时 - 已用时间）
+        total_timeout = getattr(experiment, 'request_timeout', 30.0)
+        elapsed_so_far = time.time() - start_time
+        remaining_timeout = max(1.0, total_timeout - elapsed_so_far)  # 至少保留1秒
+        
+        if elapsed_so_far >= total_timeout:
+            experiment.logger.warning(f"Client {client_id}: 请求 {request_id} 在推理前已超时 "
+                                    f"(elapsed={elapsed_so_far:.2f}s >= timeout={total_timeout}s)")
+            return None
+        
         # 使用log_request=False参数来禁止在日志中打印请求内容
         stream = await client.chat.completions.create(
             model=GLOBAL_CONFIG['request_model_name'],
@@ -250,7 +271,7 @@ async def make_request_http_client(client, experiment, request, start_time=None,
             # 请求ID仍然会被跟踪，但不会通过header传递给服务器
         )
         first_token_time, output_tokens = await asyncio.wait_for(process_stream(stream),
-                                                                 timeout=experiment.request_timeout)
+                                                                 timeout=remaining_timeout)
         end_time = time.time()
         elapsed_time = end_time - start_time
         ttft = first_token_time - start_time if first_token_time else None

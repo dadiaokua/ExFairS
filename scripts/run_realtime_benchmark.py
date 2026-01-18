@@ -10,7 +10,7 @@
 5. 不阻塞推理，更新后的优先级立即作用于新请求
 
 用法：
-    python scripts/run_realtime_benchmark.py --scenario scenario_I --strategy QUEUE_ExFairS --duration 600 --interval 60
+    python scripts/run_realtime_benchmark.py --scenario scenario_I --strategy QUEUE_ExFairS --duration 600 --interval 10
     
     # 指定模型路径
     python scripts/run_realtime_benchmark.py --scenario scenario_I --model /path/to/model
@@ -157,6 +157,17 @@ def create_benchmark_clients(scenario_config: Dict, exp_type: str,
             clients.append(client)
     
     return clients
+
+
+async def register_clients_to_queue_manager(clients: List, queue_manager: RequestQueueManager):
+    """将客户端注册到队列管理器，包括客户端对象引用（用于动态获取优先级）"""
+    for client in clients:
+        await queue_manager.register_client(
+            client_id=client.client_id,
+            client_type=client.client_type,
+            client_object=client  # 传入客户端对象引用
+        )
+        print(f"  Registered client {client.client_id} (type={client.client_type}, qpm={client.qpm})")
 
 
 async def run_realtime_experiment(clients: List, 
@@ -731,8 +742,8 @@ def parse_args():
                         help='Scheduling strategy')
     parser.add_argument('--duration', type=int, default=600,
                         help='Total experiment duration in seconds (default: 600)')
-    parser.add_argument('--interval', type=int, default=60,
-                        help='Monitor interval in seconds (default: 60)')
+    parser.add_argument('--interval', type=int, default=10,
+                        help='Monitor interval in seconds (default: 10)')
     parser.add_argument('--model', type=str, default='',
                         help='Model path (e.g., /home/llm/model_hub/Qwen3-8B)')
     parser.add_argument('--tensor-parallel', type=int, default=None,
@@ -868,6 +879,11 @@ async def main():
     
     print(f"✓ 已创建 {len(clients)} 个客户端")
     logger.info(f"Created {len(clients)} benchmark clients")
+    
+    # 【关键】将客户端注册到队列管理器（包含对象引用，用于动态优先级）
+    print("🔧 注册客户端到队列管理器...")
+    await register_clients_to_queue_manager(clients, queue_manager)
+    print(f"✓ 客户端注册完成，支持动态优先级调整")
     
     # 所有准备工作完成，现在开始实验
     print("="*60)

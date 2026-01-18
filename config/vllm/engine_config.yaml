@@ -16,9 +16,9 @@ gpu_memory_utilization: 0.9
 swap_space: 0  # GB
 
 # Model Limits
-max_model_len: 8124
+max_model_len: 16384
 max_num_seqs: 128
-max_num_batched_tokens: 65536
+max_num_batched_tokens: 32768
 
 # Device Configuration
 device: "cuda"
