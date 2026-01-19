@@ -152,8 +152,15 @@ class BenchmarkClient:
         variation = self.qpm_variation
         
         if self.qpm_pattern == "random":
-            # 随机波动：在 ±variation 范围内随机
-            factor = 1 + random.uniform(-variation, variation)
+            # 随机波动模式：优先使用 RealtimeMonitor 的协调因子（确保总 QPM 不超上限）
+            factor = 1.0
+            if hasattr(self, 'realtime_monitor') and self.realtime_monitor:
+                # 从监控器获取协调后的 QPM 因子
+                factor = self.realtime_monitor.get_client_qpm_factor(self.client_id)
+                self.logger.debug(f"Client {self.client_id}: Using coordinated QPM factor={factor:.3f}")
+            else:
+                # 没有监控器，独立计算（向后兼容）
+                factor = 1 + random.uniform(-variation, variation)
             dynamic_qpm = base * factor
             
         elif self.qpm_pattern == "burst":

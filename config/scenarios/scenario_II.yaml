@@ -1,29 +1,39 @@
 # =============================================================================
-# Scenario II: Mix 2 Clients - SLO不均匀分布
+# Scenario II: 4 Clients - QPM差异化，半数SLO紧张
 # =============================================================================
-# 客户端: 2 Mix
-# QPM: 40, 40 (均匀分布)
-# SLO: 13s, 17s (不均匀分布)
+# 客户端: 4 Mix
+# QPM: 15, 20, 22, 23 (差异不超过2倍)
+# SLO: 16s (紧张) vs 20s (宽松)
 # 总 QPM: 80
 # =============================================================================
 
-name: "Scenario_II_Mix2_SLO_Imbalanced"
-description: "Mix 2 Clients with imbalanced SLO (8s vs 12s)"
+name: "Scenario_II_4Clients_HalfTightSLO"
+description: "4 Clients with varied QPM, half with tight SLO (16s), half with relaxed SLO (20s)"
 
 # 覆盖基础配置
 experiment:
-  request_timeout: 20
+  request_timeout: 25
   max_output_tokens: 512
 
 # 客户端配置
 clients:
   - type: Mix
     count: 1
-    qpm: 40
-    slo: 13
+    qpm: 15
+    slo: 16      # 紧张 SLO
   - type: Mix
     count: 1
-    qpm: 40
-    slo: 17
+    qpm: 20
+    slo: 16      # 紧张 SLO
+  - type: Mix
+    count: 1
+    qpm: 22
+    slo: 20      # 宽松 SLO
+  - type: Mix
+    count: 1
+    qpm: 23
+    slo: 20      # 宽松 SLO
 
 # 总 QPM: 80
+# SLO 16s = 推理时间12.5s + 排队缓冲3.5s，较紧张但可能达成
+# SLO 20s = 推理时间12.5s + 排队缓冲7.5s，宽松可达

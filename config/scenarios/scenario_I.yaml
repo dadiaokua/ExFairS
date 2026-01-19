@@ -1,29 +1,38 @@
 # =============================================================================
-# Scenario I: Mix 2 Clients - QPM不均匀分布
+# Scenario I: 4 Clients - QPM差异化，SLO全部可达
 # =============================================================================
-# 客户端: 2 Mix
-# QPM: 20, 60 (不均匀分布，约3倍差异)
-# SLO: 15s (统一)
+# 客户端: 4 Mix
+# QPM: 15, 20, 22, 23 (差异不超过2倍)
+# SLO: 20s (统一，宽松，全部可达)
 # 总 QPM: 80
 # =============================================================================
 
-name: "Scenario_I_Mix2_Imbalanced"
-description: "Mix 2 Clients with imbalanced QPM (20 vs 60)"
+name: "Scenario_I_4Clients_AllSLOAchievable"
+description: "4 Clients with varied QPM (max 1.5x difference), all SLO achievable"
 
 # 覆盖基础配置
 experiment:
-  request_timeout: 20
+  request_timeout: 25
   max_output_tokens: 512
 
-# 客户端配置 - 实时监控模式使用此格式
+# 客户端配置
 clients:
   - type: Mix
     count: 1
-    qpm: 20
-    slo: 15
+    qpm: 15
+    slo: 20
   - type: Mix
     count: 1
-    qpm: 60
-    slo: 15
+    qpm: 20
+    slo: 20
+  - type: Mix
+    count: 1
+    qpm: 22
+    slo: 20
+  - type: Mix
+    count: 1
+    qpm: 23
+    slo: 20
 
 # 总 QPM: 80
+# SLO 20s = 推理时间12.5s + 排队缓冲7.5s，全部可达

@@ -177,7 +177,8 @@ async def run_realtime_experiment(clients: List,
                                   exp_type: str,
                                   monitor_interval: int,
                                   total_duration: int,
-                                  logger: logging.Logger) -> tuple:
+                                  logger: logging.Logger,
+                                  scenario_config: Dict = None) -> tuple:
     """运行实时实验"""
     logger.info("="*60)
     logger.info("Starting Realtime Benchmark Experiment")
@@ -187,12 +188,18 @@ async def run_realtime_experiment(clients: List,
     logger.info(f"Monitor Interval: {monitor_interval}s")
     logger.info("="*60)
     
+    # 构建配置参数（合并场景配置和全局配置）
+    monitor_config = dict(GLOBAL_CONFIG)
+    if scenario_config:
+        monitor_config['max_total_qpm'] = scenario_config.get('max_total_qpm', 100)
+    
     # 创建实时监控器
     monitor = RealtimeMonitor(
         clients=clients,
         exp_type=exp_type,
         monitor_interval=monitor_interval,
-        total_duration=total_duration
+        total_duration=total_duration,
+        config=monitor_config
     )
     
     # 为所有客户端设置实时监控器引用
@@ -900,7 +907,8 @@ async def main():
             exp_type=args.strategy,
             monitor_interval=args.interval,
             total_duration=args.duration,
-            logger=logger
+            logger=logger,
+            scenario_config=scenario_config
         )
         
         # 确定结果保存路径

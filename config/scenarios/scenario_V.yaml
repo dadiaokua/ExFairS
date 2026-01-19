@@ -1,45 +1,52 @@
 # =============================================================================
-# Scenario V: Mix 6 Clients - 综合差异场景
+# Scenario V: 6 Clients - QPM动态浮动，部分SLO紧张
 # =============================================================================
 # 客户端: 6 Mix
-# QPM: 8, 10, 13, 15, 17, 17 (差异化分布，约2倍差异)
-# SLO: 13s, 14s, 15s, 16s, 17s, 19s (差异化分布)
-# 总 QPM: 80
+# 基础 QPM: 10, 12, 13, 14, 15, 16 (总计 80)
+# QPM 浮动: ±50% (random 模式)
+# SLO: 16s (紧张) vs 20s (宽松)
 # =============================================================================
 
-name: "Scenario_V_Mix6_Comprehensive"
-description: "Mix 6 Clients with comprehensive differences"
+name: "Scenario_V_6Clients_MixedSLO_DynamicQPM"
+description: "6 Clients with dynamic QPM (±50% fluctuation), mixed SLO (some tight, some relaxed)"
 
 # 覆盖基础配置
 experiment:
-  request_timeout: 20
+  request_timeout: 25
   max_output_tokens: 512
+
+# QPM 动态浮动配置（全局）
+qpm_variation: 0.5           # ±50% 浮动
+qpm_pattern: "random"        # 随机浮动模式
+max_total_qpm: 100           # 总 QPM 上限（协调机制确保不超过此值）
 
 # 客户端配置
 clients:
   - type: Mix
     count: 1
-    qpm: 8
-    slo: 13
+    qpm: 10
+    slo: 16      # 紧张 SLO
   - type: Mix
     count: 1
-    qpm: 10
-    slo: 14
+    qpm: 12
+    slo: 20      # 宽松 SLO
   - type: Mix
     count: 1
     qpm: 13
-    slo: 15
+    slo: 16      # 紧张 SLO
+  - type: Mix
+    count: 1
+    qpm: 14
+    slo: 20      # 宽松 SLO
   - type: Mix
     count: 1
     qpm: 15
-    slo: 16
+    slo: 17      # 稍紧张 SLO
   - type: Mix
     count: 1
-    qpm: 17
-    slo: 17
-  - type: Mix
-    count: 1
-    qpm: 17
-    slo: 19
+    qpm: 16
+    slo: 22      # 宽松 SLO
 
-# 总 QPM: 80
+# 基础总 QPM: 80
+# SLO 分布: 3个紧张(16-17s), 3个宽松(20-22s)
+# 这个场景测试 ExFairS 在不均匀 SLO 和动态负载下的表现

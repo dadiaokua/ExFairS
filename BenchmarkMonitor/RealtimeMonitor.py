@@ -88,6 +88,11 @@ class RealtimeMonitor:
         # 设置日志
         self.logger = self._setup_logger()
         
+        # QPM 动态控制配置
+        self.max_total_qpm = self.config.get("max_total_qpm", 100)  # 总 QPM 上限
+        self.base_total_qpm = sum(c.base_qpm for c in clients)  # 基础总 QPM
+        self._qpm_factors: Dict[str, float] = {}  # 每个客户端的 QPM 因子
+        
         # 初始化客户端统计
         for client in clients:
             self._client_stats[client.client_id] = ClientStats(client_id=client.client_id)
@@ -198,6 +203,65 @@ class RealtimeMonitor:
         with self._stats_lock:
             return self._client_stats.get(client_id)
     
+    def coordinate_qpm_factors(self) -> Dict[str, float]:
+        """
+        协调计算所有客户端的 QPM 因子，确保总 QPM 不超过上限
+        
+        算法：
+        1. 为每个客户端生成随机的 QPM 因子（在 [1-variation, 1+variation] 范围内）
+        2. 计算生成后的总 QPM
+        3. 如果超过上限，按比例缩放所有因子
+        
+        Returns:
+            Dict[client_id, qpm_factor] - 每个客户端的 QPM 因子
+        """
+        import random
+        
+        factors = {}
+        
+        for client in self.clients:
+            variation = getattr(client, 'qpm_variation', 0.0)
+            if variation <= 0:
+                factors[client.client_id] = 1.0
+            else:
+                # 在 [1-variation, 1+variation] 范围内随机
+                factors[client.client_id] = 1 + random.uniform(-variation, variation)
+        
+        # 计算调整后的总 QPM
+        total_adjusted_qpm = sum(
+            client.base_qpm * factors[client.client_id] 
+            for client in self.clients
+        )
+        
+        # 如果超过上限，按比例缩放
+        if total_adjusted_qpm > self.max_total_qpm:
+            scale = self.max_total_qpm / total_adjusted_qpm
+            self.logger.info(f"QPM cap triggered: {total_adjusted_qpm:.1f} -> {self.max_total_qpm} (scale={scale:.3f})")
+            
+            for client_id in factors:
+                # 缩放因子：将超出部分按比例削减
+                original_factor = factors[client_id]
+                # 缩放 (factor - 1) 的部分，保持基础 QPM
+                adjusted_factor = 1 + (original_factor - 1) * scale
+                factors[client_id] = adjusted_factor
+        
+        # 保存因子供客户端查询
+        self._qpm_factors = factors
+        
+        # 记录日志
+        final_total = sum(client.base_qpm * factors[client.client_id] for client in self.clients)
+        self.logger.info(f"QPM factors coordinated: total={final_total:.1f} (max={self.max_total_qpm})")
+        for client in self.clients:
+            f = factors[client.client_id]
+            qpm = client.base_qpm * f
+            self.logger.debug(f"  {client.client_id}: factor={f:.3f}, qpm={qpm:.1f}")
+        
+        return factors
+    
+    def get_client_qpm_factor(self, client_id: str) -> float:
+        """获取客户端的 QPM 因子（线程安全）"""
+        return self._qpm_factors.get(client_id, 1.0)
+    
     async def start(self):
         """启动实时监控"""
         if self.is_running:
@@ -258,6 +322,10 @@ class RealtimeMonitor:
                 break
             
             monitor_count += 1
+            
+            # 协调 QPM 因子（在每个监控周期开始时）
+            self.coordinate_qpm_factors()
+            
             await self._perform_monitoring(monitor_count)
         
         # 执行最终监控（确保最后一个窗口的数据被收集，即使没有常规监控点）
