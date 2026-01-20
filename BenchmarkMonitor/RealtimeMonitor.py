@@ -93,6 +93,15 @@ class RealtimeMonitor:
         self.base_total_qpm = sum(c.base_qpm for c in clients)  # 基础总 QPM
         self._qpm_factors: Dict[str, float] = {}  # 每个客户端的 QPM 因子
         
+        # 滑动窗口配置（用于更快的优先级更新）
+        self.sliding_window_size = self.config.get("sliding_window_size", 3)  # 滑动窗口数量
+        # 每个客户端的窗口历史：{client_id: deque([{slo_rate, service_ratio, ...}, ...])}
+        from collections import deque
+        self._client_window_history: Dict[str, deque] = {
+            client.client_id: deque(maxlen=self.sliding_window_size)
+            for client in clients
+        }
+        
         # 初始化客户端统计
         for client in clients:
             self._client_stats[client.client_id] = ClientStats(client_id=client.client_id)
@@ -462,7 +471,7 @@ class RealtimeMonitor:
     
     def _update_client_fairness_ratios(self, all_stats: Dict[str, ClientStats], 
                                        fairness_result: Dict):
-        """更新客户端的 fairness_ratio"""
+        """更新客户端的 fairness_ratio（使用滑动窗口平均）"""
         total_service = fairness_result.get("total_service", 0)
         
         for client in self.clients:
@@ -470,9 +479,35 @@ class RealtimeMonitor:
             if stats is None:
                 continue
             
-            slo_ratio = stats.slo_violation_rate
-            service_ratio = stats.service_value / total_service if total_service > 0 else 0
-            client.fairness_ratio = self.alpha * slo_ratio + (1 - self.alpha) * service_ratio
+            # 当前窗口的指标
+            current_slo_rate = stats.slo_violation_rate
+            current_service_ratio = stats.service_value / total_service if total_service > 0 else 0
+            
+            # 保存当前窗口数据到历史
+            window_data = {
+                'slo_rate': current_slo_rate,
+                'service_ratio': current_service_ratio,
+                'completed': stats.window_completed
+            }
+            self._client_window_history[client.client_id].append(window_data)
+            
+            # 使用滑动窗口平均计算 fairness_ratio
+            history = self._client_window_history[client.client_id]
+            if len(history) > 0:
+                # 加权平均：按完成请求数加权，避免空窗口影响过大
+                total_weight = sum(w['completed'] for w in history) or 1
+                avg_slo_rate = sum(w['slo_rate'] * w['completed'] for w in history) / total_weight
+                avg_service_ratio = sum(w['service_ratio'] * w['completed'] for w in history) / total_weight
+            else:
+                avg_slo_rate = current_slo_rate
+                avg_service_ratio = current_service_ratio
+            
+            # 使用滑动平均值计算 fairness_ratio
+            client.fairness_ratio = self.alpha * avg_slo_rate + (1 - self.alpha) * avg_service_ratio
+            
+            self.logger.debug(f"Client {client.client_id}: sliding avg slo_rate={avg_slo_rate:.3f}, "
+                            f"service_ratio={avg_service_ratio:.3f}, fairness_ratio={client.fairness_ratio:.3f} "
+                            f"(windows={len(history)})")
     
     def _adjust_priorities(self, all_stats: Dict[str, ClientStats] = None) -> int:
         """执行优先级调整（线程安全）

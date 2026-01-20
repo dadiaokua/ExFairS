@@ -811,6 +811,16 @@ async def main():
     try:
         scenario_config = load_scenario_config(args.scenario)
         logger.info(f"Loaded scenario config: {args.scenario}")
+        
+        # 从场景配置覆盖监控间隔（如果命令行使用默认值）
+        if args.interval == 10:  # 默认值，使用场景配置
+            args.interval = scenario_config.get('realtime_monitor_interval', 20)
+            logger.info(f"Using monitor interval from config: {args.interval}s")
+        
+        # 加载滑动窗口配置到全局配置
+        GLOBAL_CONFIG['sliding_window_size'] = scenario_config.get('sliding_window_size', 3)
+        logger.info(f"Sliding window size: {GLOBAL_CONFIG['sliding_window_size']}")
+        
     except Exception as e:
         logger.error(f"Failed to load scenario config: {e}")
         sys.exit(1)  # 返回非零退出码表示失败

@@ -48,3 +48,17 @@ burst_multiplier: 2.0
 # - "normal": 正态分布，模拟真实用户请求模式
 # - "poisson": 泊松分布，随机突发请求
 distribution: "poisson"
+
+# -----------------------------------------------------------------------------
+# 实时监控配置 (Realtime Monitor Configuration)
+# -----------------------------------------------------------------------------
+# realtime_monitor_interval: 监控间隔时间（秒）
+# - 每隔这么久收集一次统计数据并调整优先级
+# - 建议值：20-60秒
+realtime_monitor_interval: 20
+
+# sliding_window_size: 滑动窗口数量
+# - 用于计算 fairness_ratio 的历史窗口数
+# - 例如: 3个窗口 × 20秒 = 60秒的统计基础
+# - 更多窗口 = 更平滑的计算，但响应更慢
+sliding_window_size: 3
