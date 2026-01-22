@@ -19,7 +19,7 @@ RESULTS_BASE_DIR="$SCRIPT_DIR/results"
 
 # ========== 默认配置 ==========
 DEFAULT_DURATION=450        # 默认7.5分钟
-DEFAULT_INTERVAL=20         # 默认20秒监控间隔
+DEFAULT_INTERVAL=30         # 默认20秒监控间隔
 DEFAULT_MODEL="/home/llm/model_hub/Qwen3-8B"  # 模型路径（用于引擎启动和tokenizer）
 DEFAULT_DATASET="sharegpt"
 DEFAULT_TENSOR_PARALLEL=8   # 默认张量并行大小
