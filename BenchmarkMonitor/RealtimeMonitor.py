@@ -93,6 +93,11 @@ class RealtimeMonitor:
         self.base_total_qpm = sum(c.base_qpm for c in clients)  # 基础总 QPM
         self._qpm_factors: Dict[str, float] = {}  # 每个客户端的 QPM 因子
         
+        # 【关键】预生成的 QPM 因子序列（用于跨策略一致性）
+        # 格式: {client_id: [factor_for_period_0, factor_for_period_1, ...]}
+        self._qpm_factor_sequences: Dict[str, List[float]] = {}
+        self._current_period_index = 0  # 当前监控周期索引
+        
         # 滑动窗口配置（用于更快的优先级更新）
         self.sliding_window_size = self.config.get("sliding_window_size", 3)  # 滑动窗口数量
         # 每个客户端的窗口历史：{client_id: deque([{slo_rate, service_ratio, ...}, ...])}
@@ -212,9 +217,24 @@ class RealtimeMonitor:
         with self._stats_lock:
             return self._client_stats.get(client_id)
     
+    def set_qpm_factor_sequences(self, sequences: Dict[str, List[float]]):
+        """
+        设置预生成的 QPM 因子序列
+        
+        Args:
+            sequences: {client_id: [factor_for_period_0, factor_for_period_1, ...]}
+        """
+        self._qpm_factor_sequences = sequences
+        self._current_period_index = 0
+        self.logger.info(f"QPM factor sequences loaded for {len(sequences)} clients")
+        for client_id, factors in sequences.items():
+            self.logger.debug(f"  {client_id}: {len(factors)} periods")
+    
     def coordinate_qpm_factors(self) -> Dict[str, float]:
         """
         协调计算所有客户端的 QPM 因子，确保总 QPM 不超过上限
+        
+        如果有预生成的序列，使用序列中的因子；否则随机生成。
         
         算法：
         1. 为每个客户端生成随机的 QPM 因子（在 [1-variation, 1+variation] 范围内）
@@ -227,14 +247,29 @@ class RealtimeMonitor:
         import random
         
         factors = {}
+        using_pregenerated = False
         
         for client in self.clients:
+            client_id = client.client_id
             variation = getattr(client, 'qpm_variation', 0.0)
+            
             if variation <= 0:
-                factors[client.client_id] = 1.0
+                factors[client_id] = 1.0
+            elif self._qpm_factor_sequences and client_id in self._qpm_factor_sequences:
+                # 【关键】使用预生成的因子序列
+                seq = self._qpm_factor_sequences[client_id]
+                if self._current_period_index < len(seq):
+                    factors[client_id] = seq[self._current_period_index]
+                    using_pregenerated = True
+                else:
+                    # 序列用完了，使用最后一个因子
+                    factors[client_id] = seq[-1] if seq else 1.0
             else:
-                # 在 [1-variation, 1+variation] 范围内随机
-                factors[client.client_id] = 1 + random.uniform(-variation, variation)
+                # 没有预生成序列，随机生成
+                factors[client_id] = 1 + random.uniform(-variation, variation)
+        
+        # 更新周期索引
+        self._current_period_index += 1
         
         # 计算调整后的总 QPM
         total_adjusted_qpm = sum(
@@ -258,8 +293,9 @@ class RealtimeMonitor:
         self._qpm_factors = factors
         
         # 记录日志
+        source = "pre-generated" if using_pregenerated else "random"
         final_total = sum(client.base_qpm * factors[client.client_id] for client in self.clients)
-        self.logger.info(f"QPM factors coordinated: total={final_total:.1f} (max={self.max_total_qpm})")
+        self.logger.info(f"QPM factors coordinated ({source}, period={self._current_period_index-1}): total={final_total:.1f} (max={self.max_total_qpm})")
         for client in self.clients:
             f = factors[client.client_id]
             qpm = client.base_qpm * f

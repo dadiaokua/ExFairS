@@ -52,6 +52,9 @@ class BenchmarkClient:
         self.qpm_pattern = qpm_pattern
         self.burst_interval = burst_interval
         self.burst_multiplier = burst_multiplier
+        
+        # 预生成的 QPM 因子序列（用于跨策略一致性）
+        self.qpm_factor_sequence: list = None  # 由外部注入
         self.port = port
         self.api_key = api_key
         self.distribution = distribution
@@ -152,14 +155,19 @@ class BenchmarkClient:
         variation = self.qpm_variation
         
         if self.qpm_pattern == "random":
-            # 随机波动模式：优先使用 RealtimeMonitor 的协调因子（确保总 QPM 不超上限）
+            # 随机波动模式
             factor = 1.0
-            if hasattr(self, 'realtime_monitor') and self.realtime_monitor:
-                # 从监控器获取协调后的 QPM 因子
+            
+            # 【关键】优先使用预生成的 QPM 因子序列（确保跨策略一致性）
+            if self.qpm_factor_sequence is not None and round_index < len(self.qpm_factor_sequence):
+                factor = self.qpm_factor_sequence[round_index]
+                self.logger.debug(f"Client {self.client_id}: Using pre-generated QPM factor={factor:.3f} for round {round_index}")
+            elif hasattr(self, 'realtime_monitor') and self.realtime_monitor:
+                # 从监控器获取协调后的 QPM 因子（向后兼容）
                 factor = self.realtime_monitor.get_client_qpm_factor(self.client_id)
                 self.logger.debug(f"Client {self.client_id}: Using coordinated QPM factor={factor:.3f}")
             else:
-                # 没有监控器，独立计算（向后兼容）
+                # 没有监控器也没有预生成序列，独立计算（向后兼容）
                 factor = 1 + random.uniform(-variation, variation)
             dynamic_qpm = base * factor
             

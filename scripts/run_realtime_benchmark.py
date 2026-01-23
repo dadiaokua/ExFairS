@@ -39,6 +39,93 @@ from util.JsonFormatterUtil import formated_json
 from util.vllm.engine_manager import VLLMEngineManager, setup_vllm_logging
 
 
+def generate_qpm_factor_sequence(scenario_config: Dict, num_periods: int, seed: int = None) -> Dict[str, List[float]]:
+    """
+    预生成所有客户端的 QPM 因子序列
+    
+    这样可以确保同一场景下的不同策略使用完全相同的 QPM 变化模式，
+    保证实验的公平性和可比性。
+    
+    Args:
+        scenario_config: 场景配置
+        num_periods: 监控周期数（例如 450s 实验 / 20s 间隔 = 22 个周期）
+        seed: 随机种子（用于可重复性）
+        
+    Returns:
+        Dict[client_id, List[factor]] - 每个客户端每个监控周期的 QPM 因子
+    """
+    import random
+    import math
+    
+    if seed is not None:
+        random.seed(seed)
+    
+    qpm_variation = scenario_config.get('qpm_variation', 0.0)
+    qpm_pattern = scenario_config.get('qpm_pattern', 'random')
+    burst_interval = scenario_config.get('burst_interval', 3)
+    burst_multiplier = scenario_config.get('burst_multiplier', 2.0)
+    
+    client_configs = scenario_config.get('clients', [])
+    
+    # 为每个客户端生成因子序列
+    sequences = {}
+    
+    client_index = 0
+    for client_cfg in client_configs:
+        count = client_cfg.get('count', 1)
+        client_type = client_cfg.get('type', 'Mix')
+        
+        for i in range(count):
+            client_id = f"{client_type}_{client_index}"
+            factors = []
+            
+            for period_idx in range(num_periods):
+                if qpm_variation <= 0:
+                    factor = 1.0
+                elif qpm_pattern == "random":
+                    factor = 1 + random.uniform(-qpm_variation, qpm_variation)
+                elif qpm_pattern == "burst":
+                    if period_idx % burst_interval == 0:
+                        factor = burst_multiplier
+                    else:
+                        factor = 1 + random.uniform(-qpm_variation * 0.5, qpm_variation * 0.5)
+                elif qpm_pattern == "ramp":
+                    if num_periods > 1:
+                        progress = period_idx / (num_periods - 1)
+                    else:
+                        progress = 0.5
+                    factor = (1 - qpm_variation) + 2 * qpm_variation * progress
+                elif qpm_pattern == "wave":
+                    phase = 2 * math.pi * period_idx / max(num_periods, 1)
+                    factor = 1 + qpm_variation * math.sin(phase)
+                else:
+                    factor = 1.0
+                
+                factors.append(factor)
+            
+            sequences[client_id] = factors
+            client_index += 1
+    
+    return sequences
+
+
+def save_qpm_factor_sequence(sequences: Dict[str, List[float]], filepath: str):
+    """保存 QPM 因子序列到文件"""
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(sequences, f, indent=2)
+    print(f"✓ QPM 因子序列已保存到: {filepath}")
+
+
+def load_qpm_factor_sequence(filepath: str) -> Dict[str, List[float]]:
+    """从文件加载 QPM 因子序列"""
+    if not os.path.exists(filepath):
+        return None
+    with open(filepath, 'r', encoding='utf-8') as f:
+        sequences = json.load(f)
+    print(f"✓ QPM 因子序列已从文件加载: {filepath}")
+    return sequences
+
+
 def setup_logging(exp_type: str) -> logging.Logger:
     """设置日志
     
@@ -90,11 +177,13 @@ def create_benchmark_clients(scenario_config: Dict, exp_type: str,
                              result_queue: asyncio.Queue,
                              tokenizer, formatted_json_data: List,
                              openai_clients,  # 可以为 None（使用直接引擎模式）
-                             duration: int) -> List:
+                             duration: int,
+                             qpm_factor_sequences: Dict[str, List[float]] = None) -> List:
     """根据场景配置创建客户端
     
     Args:
         openai_clients: OpenAI 客户端列表，如果为 None 则使用 vLLM 直接引擎模式
+        qpm_factor_sequences: 预生成的 QPM 因子序列，用于确保跨策略一致性
     """
     from BenchmarkClient.BenchmarkClient import BenchmarkClient
     
@@ -109,6 +198,7 @@ def create_benchmark_clients(scenario_config: Dict, exp_type: str,
         
         for i in range(count):
             client_index = len(clients)
+            client_id = f"{client_type}_{client_index}"
             
             # 获取 max_output_tokens 配置（先从 experiment 子配置读取）
             max_output_tokens = scenario_config.get('experiment', {}).get('max_output_tokens',
@@ -148,6 +238,11 @@ def create_benchmark_clients(scenario_config: Dict, exp_type: str,
                 burst_multiplier=scenario_config.get('burst_multiplier', 2.0)
             )
             
+            # 【关键】注入预生成的 QPM 因子序列
+            if qpm_factor_sequences and client_id in qpm_factor_sequences:
+                client.qpm_factor_sequence = qpm_factor_sequences[client_id]
+                print(f"  ✓ 客户端 {client_id} 已注入 QPM 因子序列 (长度={len(client.qpm_factor_sequence)})")
+            
             # 设置 experiment_config（BaseExperiment 需要）
             client.experiment_config = {
                 'output_tokens': max_output_tokens,
@@ -178,8 +273,13 @@ async def run_realtime_experiment(clients: List,
                                   monitor_interval: int,
                                   total_duration: int,
                                   logger: logging.Logger,
-                                  scenario_config: Dict = None) -> tuple:
-    """运行实时实验"""
+                                  scenario_config: Dict = None,
+                                  qpm_factor_sequences: Dict[str, List[float]] = None) -> tuple:
+    """运行实时实验
+    
+    Args:
+        qpm_factor_sequences: 预生成的 QPM 因子序列，用于确保跨策略一致性
+    """
     logger.info("="*60)
     logger.info("Starting Realtime Benchmark Experiment")
     logger.info(f"Experiment Type: {exp_type}")
@@ -201,6 +301,11 @@ async def run_realtime_experiment(clients: List,
         total_duration=total_duration,
         config=monitor_config
     )
+    
+    # 【关键】注入预生成的 QPM 因子序列
+    if qpm_factor_sequences:
+        monitor.set_qpm_factor_sequences(qpm_factor_sequences)
+        logger.info(f"QPM factor sequences injected for {len(qpm_factor_sequences)} clients")
     
     # 为所有客户端设置实时监控器引用
     for client in clients:
@@ -311,9 +416,9 @@ async def run_client_continuous(client, duration: int, logger: logging.Logger):
     logger.info(f"Client {client.client_id}: Creating QueueExperiment with strategy={strategy}")
     
     try:
-        experiment = QueueExperiment(client, client.queue_manager, strategy)
+    experiment = QueueExperiment(client, client.queue_manager, strategy)
         logger.info(f"Client {client.client_id}: QueueExperiment created, calling setup()")
-        await experiment.setup()
+    await experiment.setup()
         logger.info(f"Client {client.client_id}: Setup completed")
     except Exception as e:
         logger.error(f"Client {client.client_id}: Error during setup: {e}", exc_info=True)
@@ -883,6 +988,47 @@ async def main():
     
     logger.info("Queue manager started successfully")
     
+    # 【关键】处理 QPM 因子序列，确保同一场景下不同策略使用相同的 QPM 变化
+    qpm_factor_sequences = None
+    qpm_variation = scenario_config.get('qpm_variation', 0.0)
+    
+    if qpm_variation > 0:
+        # 计算监控周期数
+        num_periods = (args.duration // args.interval) + 5  # 多生成几个以防万一
+        
+        # 确定 QPM 因子序列文件路径（按场景保存）
+        qpm_sequence_dir = f"results/{args.run_id}"
+        os.makedirs(qpm_sequence_dir, exist_ok=True)
+        qpm_sequence_file = f"{qpm_sequence_dir}/{args.scenario}_qpm_factors.json"
+        
+        # 尝试加载已有的序列（如果是同一 run_id 的后续策略）
+        qpm_factor_sequences = load_qpm_factor_sequence(qpm_sequence_file)
+        
+        if qpm_factor_sequences is None:
+            # 没有现成的序列，生成新的
+            # 使用场景名作为种子的一部分，确保可重复性
+            seed = hash(args.scenario) % (2**32)
+            print(f"🎲 正在为场景 {args.scenario} 生成 QPM 因子序列...")
+            print(f"   周期数: {num_periods} (duration={args.duration}s / interval={args.interval}s)")
+            print(f"   随机种子: {seed}")
+            qpm_factor_sequences = generate_qpm_factor_sequence(
+                scenario_config=scenario_config,
+                num_periods=num_periods,
+                seed=seed
+            )
+            save_qpm_factor_sequence(qpm_factor_sequences, qpm_sequence_file)
+            
+            # 打印生成的因子（只显示前几个）
+            for client_id, factors in qpm_factor_sequences.items():
+                preview = [f'{f:.3f}' for f in factors[:5]]
+                if len(factors) > 5:
+                    preview.append(f'... ({len(factors)} total)')
+                print(f"  {client_id}: {preview}")
+        else:
+            print(f"✓ 使用已有的 QPM 因子序列（确保跨策略一致性）")
+            for client_id, factors in qpm_factor_sequences.items():
+                print(f"  {client_id}: {len(factors)} periods loaded")
+    
     # 创建客户端
     print("🔧 正在创建客户端...")
     clients = create_benchmark_clients(
@@ -893,7 +1039,8 @@ async def main():
         tokenizer=tokenizer,
         formatted_json_data=formatted_json_data,
         openai_clients=None,  # 不再使用 OpenAI 客户端
-        duration=args.duration
+        duration=args.duration,
+        qpm_factor_sequences=qpm_factor_sequences  # 注入 QPM 因子序列
     )
     
     print(f"✓ 已创建 {len(clients)} 个客户端")
@@ -918,7 +1065,8 @@ async def main():
             monitor_interval=args.interval,
             total_duration=args.duration,
             logger=logger,
-            scenario_config=scenario_config
+            scenario_config=scenario_config,
+            qpm_factor_sequences=qpm_factor_sequences  # 注入 QPM 因子序列
         )
         
         # 确定结果保存路径
