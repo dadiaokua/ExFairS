@@ -416,9 +416,9 @@ async def run_client_continuous(client, duration: int, logger: logging.Logger):
     logger.info(f"Client {client.client_id}: Creating QueueExperiment with strategy={strategy}")
     
     try:
-    experiment = QueueExperiment(client, client.queue_manager, strategy)
+        experiment = QueueExperiment(client, client.queue_manager, strategy)
         logger.info(f"Client {client.client_id}: QueueExperiment created, calling setup()")
-    await experiment.setup()
+        await experiment.setup()
         logger.info(f"Client {client.client_id}: Setup completed")
     except Exception as e:
         logger.error(f"Client {client.client_id}: Error during setup: {e}", exc_info=True)
