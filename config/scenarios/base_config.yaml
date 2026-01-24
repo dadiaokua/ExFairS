@@ -15,7 +15,7 @@ experiment:
   request_timeout: 12
 
   # max_output_tokens: 最大输出token数
-  max_output_tokens: 512
+  max_output_tokens: 128
 
   # concurrency: 每个客户端的并发数
   concurrency: 10

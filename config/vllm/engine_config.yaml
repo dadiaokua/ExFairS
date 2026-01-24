@@ -17,8 +17,8 @@ swap_space: 0  # GB
 
 # Model Limits
 max_model_len: 16384
-max_num_seqs: 128
-max_num_batched_tokens: 32768
+max_num_seqs: 64              # 减少并发序列数，降低单请求延迟
+max_num_batched_tokens: 8192  # 减少批处理大小，降低单请求延迟
 
 # Device Configuration
 device: "cuda"
