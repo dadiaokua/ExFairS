@@ -632,8 +632,21 @@ class RealtimeMonitor:
         total_completed = sum(s.cumulative_completed for s in final_stats.values())
         total_slo_violations = sum(s.cumulative_slo_violations for s in final_stats.values())
         
-        slo_rates = [s.cumulative_slo_violation_rate for s in final_stats.values()]
-        final_jain = calculate_jain_index(slo_rates)
+        # 计算最终 Jain Index：使用历史监控周期的平均值
+        # 这比使用最终累计违约率更能反映整个实验过程中的公平性
+        # 因为当违约率都很低时，累计值的 Jain Index 会过度敏感
+        if self.monitor_history:
+            # 从历史记录中提取每个周期的 jain_index
+            jain_values = [h.get('jain_index', 1.0) for h in self.monitor_history if h.get('jain_index') is not None]
+            if jain_values:
+                final_jain = sum(jain_values) / len(jain_values)
+                self.logger.info(f"Final Jain Index: {final_jain:.4f} (average of {len(jain_values)} periods)")
+            else:
+                final_jain = 1.0
+        else:
+            # 如果没有历史记录，回退到使用累计违约率计算
+            slo_rates = [s.cumulative_slo_violation_rate for s in final_stats.values()]
+            final_jain = calculate_jain_index(slo_rates)
         
         return {
             "timestamp": datetime.now().isoformat(),
