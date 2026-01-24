@@ -2,9 +2,9 @@
 # Scenario I: 4 Clients - QPM差异化，SLO全部可达
 # =============================================================================
 # 客户端: 4 Mix
-# QPM: 20, 26, 28, 30 (原80 * 1.3 = 104，差异不超过2倍)
-# SLO: 16s (统一，宽松，全部可达)
-# 总 QPM: 104
+# QPM: 30, 38, 42, 46 (总156，约系统吞吐量的1.7倍)
+# SLO: 8s (统一，宽松，全部可达)
+# 总 QPM: 156
 # =============================================================================
 
 name: "Scenario_I_4Clients_AllSLOAchievable"
@@ -12,27 +12,27 @@ description: "4 Clients with varied QPM (max 1.5x difference), all SLO achievabl
 
 # 覆盖基础配置
 experiment:
-  request_timeout: 20
+  request_timeout: 15
   max_output_tokens: 128
 
 # 客户端配置
 clients:
   - type: Mix
     count: 1
-    qpm: 20
-    slo: 16
-  - type: Mix
-    count: 1
-    qpm: 26
-    slo: 16
-  - type: Mix
-    count: 1
-    qpm: 28
-    slo: 16
-  - type: Mix
-    count: 1
     qpm: 30
-    slo: 16
+    slo: 8
+  - type: Mix
+    count: 1
+    qpm: 38
+    slo: 8
+  - type: Mix
+    count: 1
+    qpm: 42
+    slo: 8
+  - type: Mix
+    count: 1
+    qpm: 46
+    slo: 8
 
-# 总 QPM: 104 (原80 * 1.3)
-# SLO 16s = 推理时间3-4s + 排队缓冲12-13s，全部可达
+# 总 QPM: 156 (约系统吞吐量93的1.7倍)
+# SLO 8s = 推理时间3s + 排队缓冲5s

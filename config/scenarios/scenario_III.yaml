@@ -2,37 +2,37 @@
 # Scenario III: 4 Clients - QPM差异化，SLO全部紧张
 # =============================================================================
 # 客户端: 4 Mix
-# QPM: 20, 26, 28, 30 (原80 * 1.3 = 104，差异不超过2倍)
-# SLO: 12s, 13s, 13s, 14s (全部紧张)
-# 总 QPM: 104
+# QPM: 30, 38, 42, 46 (总156，约系统吞吐量的1.7倍)
+# SLO: 4.5s, 5s, 5.5s, 6s (全部紧张)
+# 总 QPM: 156
 # =============================================================================
 
 name: "Scenario_III_4Clients_AllTightSLO"
-description: "4 Clients with varied QPM, all with tight SLO (12-14s)"
+description: "4 Clients with varied QPM, all with tight SLO (4.5-6s)"
 
 # 覆盖基础配置
 experiment:
-  request_timeout: 20
+  request_timeout: 15
   max_output_tokens: 128
 
 # 客户端配置
 clients:
   - type: Mix
     count: 1
-    qpm: 20
-    slo: 12      # 非常紧张
-  - type: Mix
-    count: 1
-    qpm: 26
-    slo: 13      # 紧张
-  - type: Mix
-    count: 1
-    qpm: 28
-    slo: 13      # 紧张
-  - type: Mix
-    count: 1
     qpm: 30
-    slo: 14      # 稍紧张
+    slo: 4.5     # 非常紧张
+  - type: Mix
+    count: 1
+    qpm: 38
+    slo: 5       # 紧张
+  - type: Mix
+    count: 1
+    qpm: 42
+    slo: 5.5     # 紧张
+  - type: Mix
+    count: 1
+    qpm: 46
+    slo: 6       # 稍紧张
 
-# 总 QPM: 104 (原80 * 1.3)
+# 总 QPM: 156 (约系统吞吐量93的1.7倍)
 # 所有 SLO 都比较紧张，考验调度策略的能力

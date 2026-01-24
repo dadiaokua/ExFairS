@@ -2,45 +2,44 @@
 # Scenario IV: 4 Clients - QPM动态浮动，SLO递增分布
 # =============================================================================
 # 客户端: 4 Mix
-# QPM: 20, 26, 28, 30 (基础值，原80 * 1.3 = 104)
+# QPM: 30, 38, 42, 46 (基础值，总156)
 # QPM 浮动: ±30% (random 模式)
-# SLO: 13s, 14s, 15s, 16s (递增分布)
-# 总 QPM: 104 (基础)
+# SLO: 5s, 6s, 7s, 8s (递增分布)
+# 总 QPM: 156 (基础)
 # =============================================================================
 
 name: "Scenario_IV_4Clients_DynamicQPM_GradientSLO"
-description: "4 Clients with dynamic QPM (±30%), gradient SLO (13-16s)"
+description: "4 Clients with dynamic QPM (±30%), gradient SLO (5-8s)"
 
 # 覆盖基础配置
 experiment:
-  request_timeout: 20
+  request_timeout: 15
   max_output_tokens: 128
 
 # QPM 动态浮动配置
 qpm_variation: 0.3           # ±30% 浮动
 qpm_pattern: "random"        # 随机浮动模式
-max_total_qpm: 150           # 总 QPM 上限 (104 * 1.3 ≈ 135，留点余量)
+max_total_qpm: 220           # 总 QPM 上限 (156 * 1.3 ≈ 203，留点余量)
 
 # 客户端配置
 clients:
   - type: Mix
     count: 1
-    qpm: 20
-    slo: 13      # 较紧张
-  - type: Mix
-    count: 1
-    qpm: 26
-    slo: 14      # 稍紧张
-  - type: Mix
-    count: 1
-    qpm: 28
-    slo: 15      # 适中
-  - type: Mix
-    count: 1
     qpm: 30
-    slo: 16      # 宽松
+    slo: 5       # 较紧张
+  - type: Mix
+    count: 1
+    qpm: 38
+    slo: 6       # 稍紧张
+  - type: Mix
+    count: 1
+    qpm: 42
+    slo: 7       # 适中
+  - type: Mix
+    count: 1
+    qpm: 46
+    slo: 8       # 宽松
 
-# 基础总 QPM: 104
-# 实际 QPM 会在 73-135 之间浮动 (104 * 0.7 ~ 104 * 1.3)
-# 但受 max_total_qpm=150 限制
-# SLO 递增: 13s, 14s, 15s, 16s
+# 基础总 QPM: 156
+# 实际 QPM 会在 109-203 之间浮动 (156 * 0.7 ~ 156 * 1.3)
+# SLO 递增: 5s, 6s, 7s, 8s
