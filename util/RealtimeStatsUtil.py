@@ -234,18 +234,22 @@ class ClientStats:
         }
 
 
-def calculate_jain_index(values: List[float]) -> float:
+def calculate_jain_index(values: List[float], use_success_rate: bool = True) -> float:
     """
     计算 Jain's Fairness Index
     
     标准公式: J(x) = (Σxi)² / (n * Σxi²)
     
-    对于 SLO 违约率（越小越好），我们计算的是"违约率的公平性"：
-    - 如果所有客户端违约率相同（无论高低），则公平性为 1.0
-    - 如果违约率差异大，则公平性低
+    改进：使用 SLO 成功率（1 - 违约率）而不是违约率来计算
+    这样当违约率都很低时，Jain Index 不会过度敏感
+    
+    例如:
+    - 违约率 [0.01, 0, 0, 0] → 成功率 [0.99, 1.0, 1.0, 1.0] → Jain ≈ 0.9997
+    - 而直接用违约率计算会得到 Jain = 0.25（过度放大差异）
     
     Args:
-        values: 各客户端的指标值列表（如 SLO 违约率）
+        values: 各客户端的 SLO 违约率列表
+        use_success_rate: 是否转换为成功率计算（默认 True）
         
     Returns:
         Jain's Fairness Index (0-1)，1.0 表示完全公平
@@ -257,17 +261,20 @@ def calculate_jain_index(values: List[float]) -> float:
     if n == 1:
         return 1.0
     
+    # 转换为成功率（如果启用）
+    if use_success_rate:
+        # 将违约率转换为成功率：success_rate = 1 - violation_rate
+        calc_values = [1.0 - v for v in values]
+    else:
+        calc_values = values
+    
     # 检查是否所有值都相同
-    if all(v == values[0] for v in values):
+    if all(v == calc_values[0] for v in calc_values):
         return 1.0  # 所有值相等，完全公平
     
-    # 检查是否所有值都为 0
-    if all(v == 0 for v in values):
-        return 1.0  # 没有违约，完全公平
-    
     # 标准 Jain's Index 公式
-    sum_x = sum(values)
-    sum_sq = sum(v ** 2 for v in values)
+    sum_x = sum(calc_values)
+    sum_sq = sum(v ** 2 for v in calc_values)
     
     if sum_sq == 0:
         return 1.0  # 避免除零

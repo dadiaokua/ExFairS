@@ -1,39 +1,37 @@
 # =============================================================================
-# Scenario II: 4 Clients - QPM差异化，半数SLO紧张
+# Scenario II: 大小客户共存 - QPM差异极大
 # =============================================================================
-# 客户端: 4 Mix
-# QPM: 50, 60, 65, 75 (总250，约系统吞吐量143的1.75倍)
-# SLO: 5s (紧张) vs 8s (宽松)
-# 总 QPM: 250
+# 模拟：一个大客户（批量处理）+ 多个小客户（交互式）
+# 特点：大客户可能"饿死"小客户，考验公平调度
+# 总 QPM: 350
 # =============================================================================
 
-name: "Scenario_II_4Clients_HalfTightSLO"
-description: "4 Clients with varied QPM, half with tight SLO (5s), half with relaxed SLO (8s)"
+name: "Scenario_II_Big_vs_Small_Clients"
+description: "One dominant client vs multiple small clients - tests fairness under QPM imbalance"
 
-# 覆盖基础配置
 experiment:
-  request_timeout: 15
+  request_timeout: 20
   max_output_tokens: 128
 
-# 客户端配置
 clients:
+  # 大客户：批量处理，高QPM，SLO宽松
   - type: Mix
     count: 1
-    qpm: 50
-    slo: 5       # 紧张 SLO
+    qpm: 200       # 占总负载 57%
+    slo: 10        # 宽松，可以等
+  # 小客户：交互式应用，低QPM，SLO紧张
   - type: Mix
     count: 1
-    qpm: 60
-    slo: 5       # 紧张 SLO
+    qpm: 50        # 小客户1
+    slo: 5         # 紧张
   - type: Mix
     count: 1
-    qpm: 65
-    slo: 8       # 宽松 SLO
+    qpm: 50        # 小客户2
+    slo: 5
   - type: Mix
     count: 1
-    qpm: 75
-    slo: 8       # 宽松 SLO
+    qpm: 50        # 小客户3
+    slo: 5
 
-# 总 QPM: 250 (约系统吞吐量143的1.75倍)
-# SLO 5s = 推理时间3s + 排队缓冲2s，较紧张
-# SLO 8s = 推理时间3s + 排队缓冲5s，宽松
+# 挑战：大客户的高QPM不应该导致小客户的SLO大量违约
+# 好的调度策略应该在保证大客户吞吐的同时，优先处理小客户的紧急请求

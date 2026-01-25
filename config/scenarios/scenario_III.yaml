@@ -1,38 +1,37 @@
 # =============================================================================
-# Scenario III: 4 Clients - QPM差异化，SLO全部紧张
+# Scenario III: SLO两极分化 - 实时 vs 批量
 # =============================================================================
-# 客户端: 4 Mix
-# QPM: 50, 60, 65, 75 (总250，约系统吞吐量143的1.75倍)
-# SLO: 4.5s, 5s, 5.5s, 6s (全部紧张)
-# 总 QPM: 250
+# 模拟：实时对话服务（极低延迟）vs 后台批量任务（延迟不敏感）
+# 特点：极端的SLO差异，考验SLO感知调度
+# 总 QPM: 350
 # =============================================================================
 
-name: "Scenario_III_4Clients_AllTightSLO"
-description: "4 Clients with varied QPM, all with tight SLO (4.5-6s)"
+name: "Scenario_III_Realtime_vs_Batch"
+description: "Realtime services (strict SLO) vs batch jobs (relaxed SLO)"
 
-# 覆盖基础配置
 experiment:
-  request_timeout: 15
+  request_timeout: 25
   max_output_tokens: 128
 
-# 客户端配置
 clients:
+  # 实时服务：低QPM，极紧SLO
   - type: Mix
     count: 1
-    qpm: 50
-    slo: 4.5     # 非常紧张
+    qpm: 40
+    slo: 4         # 极紧张：推理3s + 排队1s
   - type: Mix
     count: 1
     qpm: 60
-    slo: 5       # 紧张
+    slo: 4
+  # 批量任务：高QPM，宽松SLO
   - type: Mix
     count: 1
-    qpm: 65
-    slo: 5.5     # 紧张
+    qpm: 120
+    slo: 15        # 非常宽松
   - type: Mix
     count: 1
-    qpm: 75
-    slo: 6       # 稍紧张
+    qpm: 130
+    slo: 15
 
-# 总 QPM: 250 (约系统吞吐量143的1.75倍)
-# 所有 SLO 都比较紧张，考验调度策略的能力
+# 挑战：实时服务的请求必须优先处理，即使批量任务的QPM更高
+# SLO-aware策略应该显著优于FCFS

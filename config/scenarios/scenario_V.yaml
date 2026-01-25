@@ -1,45 +1,48 @@
 # =============================================================================
-# Scenario V: 4 Clients - QPM动态浮动，SLO两极分化
+# Scenario V: 混合场景 - 最接近真实生产环境
 # =============================================================================
-# 客户端: 4 Mix
-# QPM: 50, 60, 65, 75 (基础值，总250)
-# QPM 浮动: ±30% (random 模式)
-# SLO: 5s, 5s, 8s, 8s (两极分化：紧张 vs 宽松)
-# 总 QPM: 250 (基础)
+# 模拟：多种类型客户端共存
+# - 1个大批量客户（数据处理管道）
+# - 2个中等交互式客户（Web应用）
+# - 1个小型实时客户（聊天机器人）
+# 总 QPM: 350
 # =============================================================================
 
-name: "Scenario_V_4Clients_DynamicQPM_PolarizedSLO"
-description: "4 Clients with dynamic QPM (±30%), polarized SLO (5s tight vs 8s relaxed)"
+name: "Scenario_V_Production_Mix"
+description: "Production-like mix: batch + interactive + realtime clients"
 
-# 覆盖基础配置
 experiment:
-  request_timeout: 15
+  request_timeout: 25
   max_output_tokens: 128
 
-# QPM 动态浮动配置
-qpm_variation: 0.3           # ±30% 浮动
-qpm_pattern: "random"        # 随机浮动模式
-max_total_qpm: 350           # 总 QPM 上限 (250 * 1.3 ≈ 325，留点余量)
+# 轻微QPM浮动（模拟自然波动）
+qpm_variation: 0.2
+qpm_pattern: "random"
+max_total_qpm: 450
 
-# 客户端配置
 clients:
+  # 批量处理：高QPM，非常宽松SLO
+  - type: Mix
+    count: 1
+    qpm: 150
+    slo: 20        # 20秒，非常宽松
+  # 交互式Web应用：中等QPM，中等SLO
+  - type: Mix
+    count: 1
+    qpm: 80
+    slo: 7
+  - type: Mix
+    count: 1
+    qpm: 70
+    slo: 7
+  # 实时聊天：低QPM，紧张SLO
   - type: Mix
     count: 1
     qpm: 50
-    slo: 5       # 紧张 SLO
-  - type: Mix
-    count: 1
-    qpm: 60
-    slo: 5       # 紧张 SLO
-  - type: Mix
-    count: 1
-    qpm: 65
-    slo: 8       # 宽松 SLO
-  - type: Mix
-    count: 1
-    qpm: 75
-    slo: 8       # 宽松 SLO
+    slo: 4.5       # 必须快速响应
 
-# 基础总 QPM: 250
-# 实际 QPM 会在 175-325 之间浮动 (250 * 0.7 ~ 250 * 1.3)
-# SLO 两极分化: 2个紧张(5s), 2个宽松(8s)
+# 挑战：
+# 1. 批量客户不应"饿死"其他客户
+# 2. 实时聊天的紧急请求必须优先
+# 3. 在负载波动时保持公平性
+# 这是最综合的测试场景

@@ -1,38 +1,34 @@
 # =============================================================================
-# Scenario I: 4 Clients - QPM差异化，SLO全部可达
+# Scenario I: 基准场景 - 同质化客户端
 # =============================================================================
-# 客户端: 4 Mix
-# QPM: 50, 60, 65, 75 (总250，约系统吞吐量143的1.75倍)
-# SLO: 8s (统一，宽松，全部可达)
-# 总 QPM: 250
+# 模拟：多个相似的内部服务，QPM和SLO要求相近
+# 特点：公平性容易达到，用于验证基准性能
+# 总 QPM: 350
 # =============================================================================
 
-name: "Scenario_I_4Clients_AllSLOAchievable"
-description: "4 Clients with varied QPM (max 1.5x difference), all SLO achievable"
+name: "Scenario_I_Homogeneous_Clients"
+description: "Baseline: Similar clients with uniform QPM and SLO requirements"
 
-# 覆盖基础配置
 experiment:
-  request_timeout: 15
+  request_timeout: 20
   max_output_tokens: 128
 
-# 客户端配置
 clients:
   - type: Mix
     count: 1
-    qpm: 50
-    slo: 8
+    qpm: 85
+    slo: 6
   - type: Mix
     count: 1
-    qpm: 60
-    slo: 8
+    qpm: 90
+    slo: 6
   - type: Mix
     count: 1
-    qpm: 65
-    slo: 8
+    qpm: 85
+    slo: 6
   - type: Mix
     count: 1
-    qpm: 75
-    slo: 8
+    qpm: 90
+    slo: 6
 
-# 总 QPM: 250 (约系统吞吐量143的1.75倍)
-# SLO 8s = 推理时间3s + 排队缓冲5s
+# 特点：QPM 和 SLO 几乎相同，理想情况下所有策略都应表现良好
