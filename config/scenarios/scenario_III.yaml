@@ -1,37 +1,37 @@
 # =============================================================================
 # Scenario III: SLO两极分化 - 实时 vs 批量
 # =============================================================================
-# 模拟：实时对话服务（极低延迟）vs 后台批量任务（延迟不敏感）
+# 模拟：实时对话服务（低延迟）vs 后台批量任务（延迟不敏感）
 # 特点：极端的SLO差异，考验SLO感知调度
-# 总 QPM: 350
+# 总 QPM: 280
 # =============================================================================
 
 name: "Scenario_III_Realtime_vs_Batch"
 description: "Realtime services (strict SLO) vs batch jobs (relaxed SLO)"
 
 experiment:
-  request_timeout: 25
+  request_timeout: 30
   max_output_tokens: 128
 
 clients:
-  # 实时服务：低QPM，极紧SLO
+  # 实时服务：低QPM，紧张SLO
   - type: Mix
     count: 1
-    qpm: 40
-    slo: 4         # 极紧张：推理3s + 排队1s
+    qpm: 30
+    slo: 6         # 紧张：推理3s + 排队3s
   - type: Mix
     count: 1
-    qpm: 60
-    slo: 4
+    qpm: 50
+    slo: 6
   # 批量任务：高QPM，宽松SLO
   - type: Mix
     count: 1
-    qpm: 120
-    slo: 15        # 非常宽松
+    qpm: 100
+    slo: 20        # 非常宽松
   - type: Mix
     count: 1
-    qpm: 130
-    slo: 15
+    qpm: 100
+    slo: 20
 
 # 挑战：实时服务的请求必须优先处理，即使批量任务的QPM更高
 # SLO-aware策略应该显著优于FCFS

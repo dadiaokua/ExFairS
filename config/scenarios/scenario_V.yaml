@@ -5,44 +5,43 @@
 # - 1个大批量客户（数据处理管道）
 # - 2个中等交互式客户（Web应用）
 # - 1个小型实时客户（聊天机器人）
-# 总 QPM: 350
+# 总 QPM: 280
 # =============================================================================
 
 name: "Scenario_V_Production_Mix"
 description: "Production-like mix: batch + interactive + realtime clients"
 
 experiment:
-  request_timeout: 25
+  request_timeout: 30
   max_output_tokens: 128
 
 # 轻微QPM浮动（模拟自然波动）
 qpm_variation: 0.2
 qpm_pattern: "random"
-max_total_qpm: 450
+max_total_qpm: 350
 
 clients:
   # 批量处理：高QPM，非常宽松SLO
   - type: Mix
     count: 1
-    qpm: 150
-    slo: 20        # 20秒，非常宽松
+    qpm: 120
+    slo: 25        # 25秒，非常宽松
   # 交互式Web应用：中等QPM，中等SLO
   - type: Mix
     count: 1
-    qpm: 80
-    slo: 7
+    qpm: 60
+    slo: 10
   - type: Mix
     count: 1
-    qpm: 70
-    slo: 7
+    qpm: 60
+    slo: 10
   # 实时聊天：低QPM，紧张SLO
   - type: Mix
     count: 1
-    qpm: 50
-    slo: 4.5       # 必须快速响应
+    qpm: 40
+    slo: 7         # 必须快速响应
 
 # 挑战：
 # 1. 批量客户不应"饿死"其他客户
 # 2. 实时聊天的紧急请求必须优先
 # 3. 在负载波动时保持公平性
-# 这是最综合的测试场景

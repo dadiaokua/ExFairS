@@ -3,35 +3,35 @@
 # =============================================================================
 # 模拟：一个大客户（批量处理）+ 多个小客户（交互式）
 # 特点：大客户可能"饿死"小客户，考验公平调度
-# 总 QPM: 350
+# 总 QPM: 280
 # =============================================================================
 
 name: "Scenario_II_Big_vs_Small_Clients"
 description: "One dominant client vs multiple small clients - tests fairness under QPM imbalance"
 
 experiment:
-  request_timeout: 20
+  request_timeout: 25
   max_output_tokens: 128
 
 clients:
   # 大客户：批量处理，高QPM，SLO宽松
   - type: Mix
     count: 1
-    qpm: 200       # 占总负载 57%
-    slo: 10        # 宽松，可以等
+    qpm: 160       # 占总负载 57%
+    slo: 15        # 宽松，可以等
   # 小客户：交互式应用，低QPM，SLO紧张
   - type: Mix
     count: 1
-    qpm: 50        # 小客户1
-    slo: 5         # 紧张
+    qpm: 40        # 小客户1
+    slo: 8         # 较紧张
   - type: Mix
     count: 1
-    qpm: 50        # 小客户2
-    slo: 5
+    qpm: 40        # 小客户2
+    slo: 8
   - type: Mix
     count: 1
-    qpm: 50        # 小客户3
-    slo: 5
+    qpm: 40        # 小客户3
+    slo: 8
 
 # 挑战：大客户的高QPM不应该导致小客户的SLO大量违约
 # 好的调度策略应该在保证大客户吞吐的同时，优先处理小客户的紧急请求

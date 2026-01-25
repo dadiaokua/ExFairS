@@ -3,32 +3,33 @@
 # =============================================================================
 # 模拟：多个相似的内部服务，QPM和SLO要求相近
 # 特点：公平性容易达到，用于验证基准性能
-# 总 QPM: 350
+# 总 QPM: 280 (系统吞吐~200的1.4倍)
 # =============================================================================
 
 name: "Scenario_I_Homogeneous_Clients"
 description: "Baseline: Similar clients with uniform QPM and SLO requirements"
 
 experiment:
-  request_timeout: 20
+  request_timeout: 25
   max_output_tokens: 128
 
 clients:
   - type: Mix
     count: 1
-    qpm: 85
-    slo: 6
+    qpm: 70
+    slo: 10
   - type: Mix
     count: 1
-    qpm: 90
-    slo: 6
+    qpm: 70
+    slo: 10
   - type: Mix
     count: 1
-    qpm: 85
-    slo: 6
+    qpm: 70
+    slo: 10
   - type: Mix
     count: 1
-    qpm: 90
-    slo: 6
+    qpm: 70
+    slo: 10
 
-# 特点：QPM 和 SLO 几乎相同，理想情况下所有策略都应表现良好
+# 特点：QPM 和 SLO 完全相同，理想情况下所有策略都应表现良好
+# SLO 10s = 推理3s + 排队缓冲7s

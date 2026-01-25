@@ -3,40 +3,39 @@
 # =============================================================================
 # 模拟：正常负载 + 周期性突发（如促销活动、整点高峰）
 # 特点：负载剧烈波动，考验调度策略的适应性
-# 基础 QPM: 300，峰值可达 450
+# 基础 QPM: 240，峰值可达 360
 # =============================================================================
 
 name: "Scenario_IV_Bursty_Traffic"
 description: "Dynamic load with periodic bursts - tests adaptability"
 
 experiment:
-  request_timeout: 20
+  request_timeout: 25
   max_output_tokens: 128
 
 # 大幅度QPM浮动
-qpm_variation: 0.5           # ±50% 浮动（比之前的30%更大）
+qpm_variation: 0.5           # ±50% 浮动
 qpm_pattern: "random"
-max_total_qpm: 500
+max_total_qpm: 400
 
 clients:
   # 稳定型客户
   - type: Mix
     count: 1
-    qpm: 80
-    slo: 6
+    qpm: 60
+    slo: 10
   - type: Mix
     count: 1
-    qpm: 80
-    slo: 6
-  # 突发型客户（基础QPM较高，浮动后可能非常高）
+    qpm: 60
+    slo: 10
+  # 突发型客户
   - type: Mix
     count: 1
-    qpm: 70
-    slo: 8
+    qpm: 60
+    slo: 12
   - type: Mix
     count: 1
-    qpm: 70
-    slo: 8
+    qpm: 60
+    slo: 12
 
 # 挑战：在负载突增时，如何公平分配有限的处理能力
-# 动态调度策略应该能快速适应负载变化
