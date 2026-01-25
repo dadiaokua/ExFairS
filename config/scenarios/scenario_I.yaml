@@ -1,13 +1,13 @@
 # =============================================================================
-# Scenario I: 基准场景 - 同质化客户端
+# Scenario I: QPM梯度 + 统一SLO
 # =============================================================================
-# 模拟：多个相似的内部服务，QPM和SLO要求相近
-# 特点：公平性容易达到，用于验证基准性能
-# 总 QPM: 280 (系统吞吐~200的1.4倍)
+# 模拟：不同规模的服务，但SLO要求相同
+# 特点：测试调度策略在QPM不均衡下能否保持公平
+# 总 QPM: 320
 # =============================================================================
 
-name: "Scenario_I_Homogeneous_Clients"
-description: "Baseline: Similar clients with uniform QPM and SLO requirements"
+name: "Scenario_I_QPM_Gradient_UniformSLO"
+description: "Different QPM levels with same SLO - tests fairness under load imbalance"
 
 experiment:
   request_timeout: 25
@@ -16,20 +16,20 @@ experiment:
 clients:
   - type: Mix
     count: 1
-    qpm: 70
-    slo: 10
+    qpm: 40        # 小客户
+    slo: 8
   - type: Mix
     count: 1
-    qpm: 70
-    slo: 10
+    qpm: 70        # 中小客户
+    slo: 8
   - type: Mix
     count: 1
-    qpm: 70
-    slo: 10
+    qpm: 100       # 中大客户
+    slo: 8
   - type: Mix
     count: 1
-    qpm: 70
-    slo: 10
+    qpm: 110       # 大客户
+    slo: 8
 
-# 特点：QPM 和 SLO 完全相同，理想情况下所有策略都应表现良好
-# SLO 10s = 推理3s + 排队缓冲7s
+# QPM 比例: 1 : 1.75 : 2.5 : 2.75
+# 挑战：高QPM客户不应该挤占低QPM客户的SLO
