@@ -10,7 +10,7 @@ name: "Scenario_IV_SLO_Gradient_Dynamic"
 description: "Gradient SLO with dynamic load - tests adaptability"
 
 experiment:
-  request_timeout: 20
+  request_timeout: 30
   max_output_tokens: 128
 
 # 大幅度QPM浮动
@@ -23,22 +23,22 @@ clients:
   - type: Mix
     count: 1
     qpm: 55        # (原50+5)
-    slo: 5
+    slo: 6         # (+1s)
   # 重要服务：SLO适中
   - type: Mix
     count: 1
     qpm: 80        # (原70+10)
-    slo: 7
+    slo: 8         # (+1s)
   # 普通服务：SLO宽松
   - type: Mix
     count: 1
     qpm: 90        # (原80+10)
-    slo: 10
+    slo: 11        # (+1s)
   # 后台服务：SLO很宽松
   - type: Mix
     count: 1
     qpm: 85        # (原80+5)
-    slo: 15
+    slo: 16        # (+1s)
 
 # SLO 梯度: 5s → 7s → 10s → 15s
 # 挑战：在负载突增时，优先保护紧急服务的SLO

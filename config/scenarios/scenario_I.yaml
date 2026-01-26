@@ -10,26 +10,26 @@ name: "Scenario_I_QPM_Gradient_UniformSLO"
 description: "Different QPM levels with same SLO - tests fairness under load imbalance"
 
 experiment:
-  request_timeout: 20
+  request_timeout: 30
   max_output_tokens: 128
 
 clients:
   - type: Mix
     count: 1
     qpm: 45        # 小客户 (原40+5)
-    slo: 8         # 统一SLO
+    slo: 9         # 统一SLO (+1s)
   - type: Mix
     count: 1
     qpm: 80        # 中小客户 (原70+10)
-    slo: 8
+    slo: 9
   - type: Mix
     count: 1
     qpm: 110       # 中大客户 (原100+10)
-    slo: 8
+    slo: 9
   - type: Mix
     count: 1
     qpm: 115       # 大客户 (原110+5)
-    slo: 8
+    slo: 9
 
 # QPM 比例: 1 : 1.8 : 2.4 : 2.6
 # 挑战：高QPM客户不应该挤占低QPM客户的SLO

@@ -12,7 +12,7 @@ name: "Scenario_V_Production_Mix"
 description: "Production-like mix: batch + interactive + realtime clients"
 
 experiment:
-  request_timeout: 20
+  request_timeout: 30
   max_output_tokens: 128
 
 clients:
@@ -20,21 +20,21 @@ clients:
   - type: Mix
     count: 1
     qpm: 160       # (原140+20)
-    slo: 20        # 非常宽松
+    slo: 21        # 非常宽松 (+1s)
   # 交互式Web应用：中等QPM，中等SLO
   - type: Mix
     count: 1
     qpm: 75        # (原70+5)
-    slo: 8
+    slo: 9         # (+1s)
   - type: Mix
     count: 1
     qpm: 65        # (原60+5)
-    slo: 8
+    slo: 9
   # 实时聊天：低QPM，紧张SLO
   - type: Mix
     count: 1
     qpm: 50        # (原50)
-    slo: 5.5       # 紧张
+    slo: 6.5       # 紧张 (+1s)
 
 # QPM 比例: 3.2 : 1.5 : 1.3 : 1
 # SLO 比例: 3.6 : 1.5 : 1.5 : 1

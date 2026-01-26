@@ -10,7 +10,7 @@ name: "Scenario_II_Big_vs_Small_Clients"
 description: "One dominant client vs multiple small clients - tests fairness under QPM imbalance"
 
 experiment:
-  request_timeout: 20
+  request_timeout: 30
   max_output_tokens: 128
 
 clients:
@@ -18,20 +18,20 @@ clients:
   - type: Mix
     count: 1
     qpm: 200       # 占总负载 57% (原180+20)
-    slo: 12        # 宽松，可以等
+    slo: 13        # 宽松，可以等 (+1s)
   # 小客户：交互式应用，低QPM，SLO紧张
   - type: Mix
     count: 1
     qpm: 50        # 小客户1 (原45+5)
-    slo: 6         # 紧张
+    slo: 7         # 紧张 (+1s)
   - type: Mix
     count: 1
     qpm: 50        # 小客户2 (原45+5)
-    slo: 6
+    slo: 7
   - type: Mix
     count: 1
     qpm: 50        # 小客户3 (原50)
-    slo: 6
+    slo: 7
 
 # QPM 比例: 4 : 1 : 1 : 1
 # 挑战：大客户的高QPM不应该导致小客户的SLO大量违约

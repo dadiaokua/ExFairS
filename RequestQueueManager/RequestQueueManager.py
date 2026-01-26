@@ -107,11 +107,11 @@ class RequestQueueManager:
         # 部分优先级配置
         # 新逻辑：负优先级插队，正优先级延迟
         # - 负优先级（如 -50）：插队步长 = |priority| * multiplier = 50 * 2 = 100 位
-        # - 正优先级（如 +50）：延迟时间 = (priority / 100) * max_delay = 0.5 * 5 = 2.5 秒
+        # - 正优先级（如 +50）：延迟时间 = (priority / 100) * max_delay = 0.5 * 2 = 1 秒
         self.priority_insert_multiplier = 2   # 插队倍数：priority=-50 → 最多插 100 位
         self.max_priority_positions = 200     # 最大插队位置限制
         self.priority_delay_enabled = True    # 启用正优先级延迟（新逻辑自动处理）
-        self.max_priority_delay = 5           # 最大延迟秒数（priority=100 时延迟 5 秒）
+        self.max_priority_delay = 2           # 最大延迟秒数（priority=100 时延迟 2 秒，避免严重影响吞吐量）
 
         # 优化：维护优先级分布的缓存，避免每次重新计算
         self.priority_distribution_cache = {}  # {priority: count}

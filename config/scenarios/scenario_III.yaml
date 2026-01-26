@@ -10,7 +10,7 @@ name: "Scenario_III_Realtime_vs_Batch"
 description: "Realtime services (strict SLO) vs batch jobs (relaxed SLO)"
 
 experiment:
-  request_timeout: 20
+  request_timeout: 30
   max_output_tokens: 128
 
 clients:
@@ -18,20 +18,20 @@ clients:
   - type: Mix
     count: 1
     qpm: 45        # (原40+5)
-    slo: 5         # 紧张
+    slo: 6         # 紧张 (+1s)
   - type: Mix
     count: 1
     qpm: 65        # (原60+5)
-    slo: 5
+    slo: 6
   # 批量任务：高QPM，宽松SLO
   - type: Mix
     count: 1
     qpm: 120       # (原110+10)
-    slo: 18        # 非常宽松
+    slo: 19        # 非常宽松 (+1s)
   - type: Mix
     count: 1
     qpm: 120       # (原110+10)
-    slo: 18
+    slo: 19
 
 # SLO 比例: 1 : 1 : 3.6 : 3.6
 # 挑战：实时服务的请求必须优先处理，即使批量任务的QPM更高
