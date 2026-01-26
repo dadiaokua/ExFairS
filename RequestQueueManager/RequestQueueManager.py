@@ -105,10 +105,13 @@ class RequestQueueManager:
         self.client_objects: Dict[str, Any] = {}  # client_id -> BenchmarkClient对象
 
         # 部分优先级配置
-        self.priority_insert_multiplier = 10  # 优先级倍数，优先级N可以往前插N*multiplier个位置
-        self.max_priority_positions = 100  # 最大优先级插入位置限制
-        self.priority_delay_enabled = False  # 禁用低优先级延迟（会损害SLO）
-        self.max_priority_delay = 10  # 最大延迟秒数
+        # 新逻辑：负优先级插队，正优先级延迟
+        # - 负优先级（如 -50）：插队步长 = |priority| * multiplier = 50 * 2 = 100 位
+        # - 正优先级（如 +50）：延迟时间 = (priority / 100) * max_delay = 0.5 * 5 = 2.5 秒
+        self.priority_insert_multiplier = 2   # 插队倍数：priority=-50 → 最多插 100 位
+        self.max_priority_positions = 200     # 最大插队位置限制
+        self.priority_delay_enabled = True    # 启用正优先级延迟（新逻辑自动处理）
+        self.max_priority_delay = 5           # 最大延迟秒数（priority=100 时延迟 5 秒）
 
         # 优化：维护优先级分布的缓存，避免每次重新计算
         self.priority_distribution_cache = {}  # {priority: count}
@@ -481,95 +484,59 @@ class RequestQueueManager:
             if self.strategy == QueueStrategy.PRIORITY:
                 self.logger.debug(f"Submitting request {request_id} to priority queue (priority={priority})")
                 
-                # 部分优先级策略：根据优先级在整个缓存中的排名位置来决定插入策略
-                # 数字越小的优先级越高，但不会直接插到所有低优先级请求的前面
-                # 而是根据优先级差值计算允许的前进位置数
+                # ========================================================
+                # 优先级策略：基于优先级与0的距离进行插队或延迟
+                # - 负优先级（如 -50）：插队，负得越多插得越前
+                # - 正优先级（如 +50）：延迟入队，正得越多延迟越长
+                # - 优先级 0：正常入队
+                # ========================================================
                 
-                # 低优先级请求延迟插入队列
-                if self.priority_delay_enabled and request.priority > 0:
-                    # 计算延迟时间：根据优先级在系统中的相对位置
-                    # 获取当前系统中所有优先级
-                    async with self.priority_queue_lock:
-                        all_priorities = sorted(self.priority_distribution_cache.keys())
-                        if len(all_priorities) > 0:
-                            # 计算当前请求的优先级排名比例
-                            higher_priority_count = len([p for p in all_priorities if p < request.priority])
-                            total_priority_levels = len(all_priorities)
-                            priority_rank_ratio = higher_priority_count / total_priority_levels
-                            
-                            # 根据排名比例计算延迟：排名越低（ratio越大），延迟越长
-                            # 排名比例0-1，转换为延迟0-max_delay秒
-                            delay_seconds = min(priority_rank_ratio * self.max_priority_delay, self.max_priority_delay)
-                            
-                            self.logger.info(f"低优先级请求 {request.request_id} (priority={request.priority}) "
-                                           f"排名比例={priority_rank_ratio:.3f}, 延迟 {delay_seconds:.1f} 秒后插入队列")
-                        else:
-                            # 如果系统中没有其他优先级，使用默认延迟
-                            delay_seconds = min(request.priority, self.max_priority_delay)
-                            self.logger.info(f"低优先级请求 {request.request_id} (priority={request.priority}) "
-                                           f"系统无其他优先级，延迟 {delay_seconds} 秒后插入队列")
+                # 正优先级：延迟入队（正得越多，延迟越长）
+                if request.priority > 0:
+                    # 延迟时间 = (优先级 / 100) * max_delay，上限为 max_delay
+                    # 例如：priority=50 → 延迟 50% * max_delay
+                    #       priority=100 → 延迟 100% * max_delay
+                    delay_ratio = min(request.priority / 100.0, 1.0)
+                    delay_seconds = delay_ratio * self.max_priority_delay
                     
-                    delay_start_time = time.time()
-                    await asyncio.sleep(delay_seconds)
-                    delay_actual_time = time.time() - delay_start_time
-                    self.logger.debug(f"Request {request_id} completed delay: {delay_actual_time:.3f}s")
+                    if delay_seconds > 0.1:  # 只有延迟超过 0.1 秒才真正等待
+                        self.logger.info(f"[低优先级延迟] 请求 {request.request_id} (priority={request.priority:+d}): "
+                                       f"延迟 {delay_seconds:.2f}s 后入队")
+                        await asyncio.sleep(delay_seconds)
                 
                 async with self.priority_queue_lock:
                     lock_acquired_time = time.time()
+                    queue_len = len(self.priority_queue_list)
                     
-                    if len(self.priority_distribution_cache) == 0:
-                        # 缓存为空，直接插入到末尾
-                        insert_pos = len(self.priority_queue_list)
-                        self.logger.debug(f"Priority queue empty, inserting {request_id} at position {insert_pos}")
+                    if queue_len == 0:
+                        # 队列为空，直接插入
+                        insert_pos = 0
+                        max_forward_positions = 0
+                        self.logger.debug(f"Priority queue empty, inserting {request_id} at position 0")
                     else:
-                        # 获取所有优先级并排序（数值越小优先级越高）
-                        all_priorities = sorted(self.priority_distribution_cache.keys())
-
-                        # 计算当前请求的优先级排名
-                        # 找到比当前优先级更高（数值更小）的优先级数量
-                        higher_priority_count = len([p for p in all_priorities if p < request.priority])
-                        total_priority_levels = len(all_priorities)
-
-                        # 计算优先级排名比例（0表示最高优先级，1表示最低优先级）
-                        if request.priority in all_priorities:
-                            # 如果当前优先级已存在，使用现有排名
-                            priority_rank_ratio = higher_priority_count / total_priority_levels
-                        else:
-                            # 如果是新的优先级，计算插入后的排名
-                            priority_rank_ratio = higher_priority_count / (total_priority_levels + 1)
-
-                        # 计算可以超越的请求数量（比当前优先级低的所有请求）
-                        can_overtake_count = 0
-                        for existing_priority, count in self.priority_distribution_cache.items():
-                            if existing_priority > request.priority:
-                                can_overtake_count += count
-
-                        # 根据优先级排名比例计算可以往前插入的位置数
-                        if can_overtake_count > 0:
-                            # 优先级排名越高（ratio越小），可以往前插入的比例越大
-                            # 使用反比例：(1 - priority_rank_ratio) 表示优先级优势
-                            priority_advantage = 1 - priority_rank_ratio
-
-                            # 计算基础前进位置数
-                            base_forward_positions = int(can_overtake_count * priority_advantage)
-
-                            # 应用倍数和限制
-                            max_forward_positions = min(
-                                base_forward_positions * self.priority_insert_multiplier,
-                                self.max_priority_positions,
-                                can_overtake_count,
-                                len(self.priority_queue_list)
-                            )
-                        else:
+                        # 根据优先级计算插入位置
+                        if request.priority < 0:
+                            # 负优先级：插队（负得越多，插得越前）
+                            # 插队步长 = |priority| * multiplier，上限为队列长度和 max_positions
+                            # 例如：priority=-50, multiplier=2 → 最多往前插 100 个位置
+                            priority_strength = abs(request.priority)
+                            base_forward = int(priority_strength * self.priority_insert_multiplier)
+                            max_forward_positions = min(base_forward, self.max_priority_positions, queue_len)
+                            insert_pos = max(0, queue_len - max_forward_positions)
+                            
+                            if max_forward_positions > 0:
+                                self.logger.info(f"[高优先级插队] 请求 {request.request_id} (priority={request.priority:+d}): "
+                                               f"插队 {max_forward_positions} 位, 插入位置={insert_pos}/{queue_len}")
+                        elif request.priority > 0:
+                            # 正优先级：插入到队列末尾（已经延迟过了）
+                            insert_pos = queue_len
                             max_forward_positions = 0
-
-                        # 计算实际插入位置：从末尾往前数 max_forward_positions 个位置
-                        insert_pos = max(0, len(self.priority_queue_list) - max_forward_positions)
-                        if max_forward_positions > 0:
-                            self.logger.info(f"优先级请求 {request.request_id} (priority={request.priority}): "
-                                             f"排名比例={priority_rank_ratio:.3f}, 可超越={can_overtake_count}, "
-                                             f"前进位置={max_forward_positions}, 插入位置={insert_pos}, "
-                                             f"队列总长度={len(self.priority_queue_list)}")
+                            self.logger.debug(f"[低优先级] 请求 {request.request_id} (priority={request.priority:+d}): "
+                                            f"插入队尾, 位置={insert_pos}")
+                        else:
+                            # 优先级 0：正常插入到末尾
+                            insert_pos = queue_len
+                            max_forward_positions = 0
 
                     # 执行插入操作
                     insertion_start_time = time.time()
@@ -585,12 +552,11 @@ class RequestQueueManager:
                                     f"lock_time={lock_time:.3f}s, insertion_time={insertion_time:.3f}s")
 
                     # 记录插入统计
-                    if insert_pos < len(self.priority_queue_list) - 1:  # 不是插入到最后位置
-                        jumped_positions = len(self.priority_queue_list) - 1 - insert_pos
-                        self.logger.info(f"请求 {request.request_id} (priority={request.priority}) "
-                                         f"在队列中前进了 {jumped_positions} 个位置 (队列总长度: {len(self.priority_queue_list)})")
+                    if max_forward_positions > 0:
+                        self.logger.info(f"请求 {request.request_id} (priority={request.priority:+d}) "
+                                         f"在队列中前进了 {max_forward_positions} 个位置 (队列总长度: {len(self.priority_queue_list)})")
                     else:
-                        self.logger.debug(f"请求 {request.request_id} (priority={request.priority}) "
+                        self.logger.debug(f"请求 {request.request_id} (priority={request.priority:+d}) "
                                           f"插入到队列末尾 (队列总长度: {len(self.priority_queue_list)})")
                         
             elif self.strategy == QueueStrategy.ROUND_ROBIN:
