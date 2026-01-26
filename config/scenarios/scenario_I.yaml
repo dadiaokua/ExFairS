@@ -3,33 +3,33 @@
 # =============================================================================
 # 模拟：不同规模的服务，但SLO要求相同
 # 特点：测试调度策略在QPM不均衡下能否保持公平
-# 总 QPM: 320
+# 总 QPM: 400 (增加负载让队列更长)
 # =============================================================================
 
 name: "Scenario_I_QPM_Gradient_UniformSLO"
 description: "Different QPM levels with same SLO - tests fairness under load imbalance"
 
 experiment:
-  request_timeout: 25
+  request_timeout: 20
   max_output_tokens: 128
 
 clients:
   - type: Mix
     count: 1
-    qpm: 40        # 小客户
-    slo: 8
+    qpm: 50        # 小客户
+    slo: 10        # 放宽SLO (推理3s + 排队7s)
   - type: Mix
     count: 1
-    qpm: 70        # 中小客户
-    slo: 8
+    qpm: 90        # 中小客户
+    slo: 10
   - type: Mix
     count: 1
-    qpm: 100       # 中大客户
-    slo: 8
+    qpm: 120       # 中大客户
+    slo: 10
   - type: Mix
     count: 1
-    qpm: 110       # 大客户
-    slo: 8
+    qpm: 140       # 大客户
+    slo: 10
 
-# QPM 比例: 1 : 1.75 : 2.5 : 2.75
+# QPM 比例: 1 : 1.8 : 2.4 : 2.8
 # 挑战：高QPM客户不应该挤占低QPM客户的SLO

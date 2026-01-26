@@ -3,35 +3,35 @@
 # =============================================================================
 # 模拟：实时对话服务（低延迟）vs 后台批量任务（延迟不敏感）
 # 特点：极端的SLO差异，考验SLO感知调度
-# 总 QPM: 320
+# 总 QPM: 400 (增加负载让队列更长)
 # =============================================================================
 
 name: "Scenario_III_Realtime_vs_Batch"
 description: "Realtime services (strict SLO) vs batch jobs (relaxed SLO)"
 
 experiment:
-  request_timeout: 30
+  request_timeout: 20
   max_output_tokens: 128
 
 clients:
-  # 实时服务：低QPM，紧张SLO
+  # 实时服务：低QPM，较紧SLO
   - type: Mix
     count: 1
-    qpm: 40
-    slo: 5         # 紧张：推理3s + 排队2s
+    qpm: 50
+    slo: 7         # 放宽 (推理3s + 排队4s)
   - type: Mix
     count: 1
-    qpm: 60
-    slo: 5
+    qpm: 70
+    slo: 7
   # 批量任务：高QPM，宽松SLO
   - type: Mix
     count: 1
-    qpm: 110
-    slo: 18        # 非常宽松
+    qpm: 140
+    slo: 20        # 非常宽松
   - type: Mix
     count: 1
-    qpm: 110
-    slo: 18
+    qpm: 140
+    slo: 20
 
-# SLO 比例: 1 : 1 : 3.6 : 3.6
+# SLO 比例: 1 : 1 : 2.9 : 2.9
 # 挑战：实时服务的请求必须优先处理，即使批量任务的QPM更高

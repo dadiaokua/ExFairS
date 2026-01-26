@@ -5,42 +5,42 @@
 # - 1个大批量客户（数据处理管道）
 # - 2个中等交互式客户（Web应用）
 # - 1个小型实时客户（聊天机器人）
-# 总 QPM: 320
+# 总 QPM: 400
 # =============================================================================
 
 name: "Scenario_V_Production_Mix"
 description: "Production-like mix: batch + interactive + realtime clients"
 
 experiment:
-  request_timeout: 30
+  request_timeout: 20
   max_output_tokens: 128
 
 # 轻微QPM浮动（模拟自然波动）
 qpm_variation: 0.2
 qpm_pattern: "random"
-max_total_qpm: 400
+max_total_qpm: 500
 
 clients:
   # 批量处理：高QPM，非常宽松SLO
   - type: Mix
     count: 1
-    qpm: 140
-    slo: 20        # 20秒，非常宽松
+    qpm: 180
+    slo: 22        # 非常宽松
   # 交互式Web应用：中等QPM，中等SLO
   - type: Mix
     count: 1
+    qpm: 90
+    slo: 10
+  - type: Mix
+    count: 1
     qpm: 70
-    slo: 8
+    slo: 10
+  # 实时聊天：低QPM，较紧SLO
   - type: Mix
     count: 1
     qpm: 60
-    slo: 8
-  # 实时聊天：低QPM，紧张SLO
-  - type: Mix
-    count: 1
-    qpm: 50
-    slo: 5.5       # 必须快速响应
+    slo: 7.5       # 放宽 (推理3s + 排队4.5s)
 
-# QPM 比例: 2.8 : 1.4 : 1.2 : 1
-# SLO 比例: 3.6 : 1.5 : 1.5 : 1
+# QPM 比例: 3 : 1.5 : 1.2 : 1
+# SLO 比例: 2.9 : 1.3 : 1.3 : 1
 # 挑战：综合考验所有调度能力

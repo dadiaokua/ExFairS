@@ -595,15 +595,18 @@ class RealtimeMonitor:
                 old_high = high_client.priority
                 old_low = low_client.priority
                 
-                high_client.priority = max(priority_min, high_client.priority - priority_change)
-                low_client.priority = min(priority_max, low_client.priority + priority_change)
+                # fairness_ratio 高的客户（受苦多）应该获得更高优先级（更小的数值）
+                # 优先级数值越小，优先级越高
+                high_client.priority = max(priority_min, high_client.priority - priority_change)  # 提高优先级
+                low_client.priority = min(priority_max, low_client.priority + priority_change)    # 降低优先级
                 
                 high_client.exchange_Resources_Times += 1
                 low_client.exchange_Resources_Times += 1
                 exchange_count += 1
                 
-                self.logger.info(f"[ExFairS] Priority: {high_client.client_id}: {old_high}->{high_client.priority}, "
-                               f"{low_client.client_id}: {old_low}->{low_client.priority}")
+                self.logger.info(f"[ExFairS] Priority adjustment: "
+                               f"{high_client.client_id} (fairness_ratio={high_client.fairness_ratio:.3f}): {old_high}->{high_client.priority} (boosted), "
+                               f"{low_client.client_id} (fairness_ratio={low_client.fairness_ratio:.3f}): {old_low}->{low_client.priority} (reduced)")
         
         return exchange_count
     

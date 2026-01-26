@@ -3,42 +3,42 @@
 # =============================================================================
 # 模拟：不同优先级的服务，SLO从紧到松
 # 特点：负载波动 + SLO差异，考验动态适应能力
-# 基础 QPM: 280，峰值可达 420
+# 基础 QPM: 350，峰值可达 525
 # =============================================================================
 
 name: "Scenario_IV_SLO_Gradient_Dynamic"
 description: "Gradient SLO with dynamic load - tests adaptability"
 
 experiment:
-  request_timeout: 25
+  request_timeout: 20
   max_output_tokens: 128
 
 # 大幅度QPM浮动
 qpm_variation: 0.5           # ±50% 浮动
 qpm_pattern: "random"
-max_total_qpm: 450
+max_total_qpm: 550
 
 clients:
-  # 紧急服务：SLO最紧
+  # 紧急服务：SLO较紧
   - type: Mix
     count: 1
-    qpm: 50
-    slo: 5
-  # 重要服务：SLO较紧
+    qpm: 60
+    slo: 7         # 放宽 (推理3s + 排队4s)
+  # 重要服务：SLO适中
   - type: Mix
     count: 1
-    qpm: 70
-    slo: 7
-  # 普通服务：SLO适中
+    qpm: 90
+    slo: 9
+  # 普通服务：SLO宽松
   - type: Mix
     count: 1
-    qpm: 80
-    slo: 10
-  # 后台服务：SLO宽松
+    qpm: 100
+    slo: 12
+  # 后台服务：SLO很宽松
   - type: Mix
     count: 1
-    qpm: 80
-    slo: 15
+    qpm: 100
+    slo: 18
 
-# SLO 梯度: 5s → 7s → 10s → 15s
+# SLO 梯度: 7s → 9s → 12s → 18s
 # 挑战：在负载突增时，优先保护紧急服务的SLO
