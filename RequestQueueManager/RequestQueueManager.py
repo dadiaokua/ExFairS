@@ -593,7 +593,7 @@ class RequestQueueManager:
                         if hasattr(experiment, 'output_tokens'):
                             output_tokens = experiment.output_tokens
                         else:
-                            output_tokens = 256  # 默认值
+                            output_tokens = 128  # 默认值（与 Config.py 保持一致）
                         
                         # 估算输入token数（从request_content长度）
                         if isinstance(request_content, str):
@@ -955,7 +955,7 @@ class RequestQueueManager:
         # 【关键修复】检查总时间是否已超时（包括排队时间）
         # 使用 experiment 的 request_timeout 作为总时间上限
         total_elapsed = time.time() - request.submit_time
-        request_timeout = getattr(request.experiment, 'request_timeout', 120)
+        request_timeout = getattr(request.experiment, 'request_timeout', 30)
         
         if total_elapsed >= request_timeout:
             self.logger.warning(f"Worker {worker_name}: Request {request.request_id} already timed out "

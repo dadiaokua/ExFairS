@@ -18,8 +18,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RESULTS_BASE_DIR="$SCRIPT_DIR/results"
 
 # ========== 默认配置 ==========
-DEFAULT_DURATION=450        # 默认7.5分钟
-DEFAULT_INTERVAL=30         # 默认20秒监控间隔
+DEFAULT_DURATION=300        # 默认300秒（5分钟），约12轮监控，足够统计分析
+DEFAULT_INTERVAL=25         # 默认25秒监控间隔，每轮约125个请求（QPM≈300时）
 DEFAULT_MODEL="/home/llm/model_hub/Qwen3-8B"  # 模型路径（用于引擎启动和tokenizer）
 DEFAULT_DATASET="sharegpt"
 DEFAULT_TENSOR_PARALLEL=8   # 默认张量并行大小
@@ -51,12 +51,12 @@ show_help() {
   - QUEUE_FCFS                  先到先服务
   - QUEUE_RR                    轮询调度
 
-可用场景 (支持数字或完整名称, 总QPM=120):
-  - 1 / scenario_I              Mix2: QPM不均 (30,90), SLO统一 (16s)
-  - 2 / scenario_II             Mix2: QPM均匀 (60,60), SLO不均 (12,16s)
-  - 3 / scenario_III            Mix4: QPM递增 (20-40), SLO统一 (12s)
-  - 4 / scenario_IV             Mix4: QPM均匀 (30), SLO递增 (8-16s)
-  - 5 / scenario_V              Mix6: 综合差异场景 (12-24 QPM, 8-13s SLO)
+可用场景 (支持数字或完整名称, 基础QPM≈300, 按客户端数量排序):
+  - 1 / scenario_I              双客户端对比: QPM=300, 2客户端, SLO差异(7 vs 12)
+  - 2 / scenario_II             三客户端梯度: QPM=300, 3客户端, QPM/SLO梯度分布
+  - 3 / scenario_III            均衡负载: QPM=300, 4客户端, 完全均衡(75×4, SLO=8)
+  - 4 / scenario_IV             实时vs批处理: QPM=290, 4客户端, 实时(SLO=6)+批处理(SLO=14)
+  - 5 / scenario_V              混合压力: QPM=300, 8客户端, 大/紧急/普通/低优先级混合
 
 示例:
   # 默认运行（场景1 + ExFairS）
@@ -114,12 +114,12 @@ map_scenarios() {
 }
 
 list_scenarios() {
-    echo "可用场景:"
-    echo "  1 - scenario_I:   Mix2: QPM不均 (20,60), SLO统一 (20s)"
-    echo "  2 - scenario_II:  Mix2: QPM均匀 (40,40), SLO不均 (15,20s)"
-    echo "  3 - scenario_III: Mix4: QPM递增 (15-30), SLO统一 (15s)"
-    echo "  4 - scenario_IV:  Mix4: QPM均匀 (20), SLO递增 (10-20s)"
-    echo "  5 - scenario_V:   Mix6: 综合差异场景"
+    echo "可用场景 (基础QPM≈300, 按客户端数量排序):"
+    echo "  1 - scenario_I:    双客户端对比 (2客户端, SLO差异)"
+    echo "  2 - scenario_II:   三客户端梯度 (3客户端, QPM/SLO梯度)"
+    echo "  3 - scenario_III:  均衡负载 (4客户端, 完全均衡)"
+    echo "  4 - scenario_IV:   实时vs批处理 (4客户端, 异构工作负载)"
+    echo "  5 - scenario_V:    混合压力 (8客户端, 最复杂场景)"
 }
 
 list_strategies() {
@@ -238,6 +238,12 @@ done
 # 转换为数组
 IFS=',' read -ra SCENARIO_ARRAY <<< "$SCENARIOS"
 IFS=',' read -ra EXP_ARRAY <<< "$EXPERIMENTS"
+
+# ========== 清理残留 GPU 进程 ==========
+echo "🧹 清理残留 GPU 进程..."
+pkill -9 -f "python.*run_realtime_benchmark" 2>/dev/null || true
+sleep 2
+echo "✅ GPU 清理完成"
 
 # ========== 生成运行ID ==========
 RUN_TIMESTAMP="run_$(date +"%Y%m%d_%H%M%S")"

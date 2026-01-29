@@ -1,45 +1,38 @@
 # =============================================================================
-# Scenario IV: SLO梯度 + 动态负载
+# Scenario IV: 实时型 vs 批处理型
 # =============================================================================
-# 模拟：不同优先级的服务，SLO从紧到松
-# 特点：负载波动 + SLO差异，考验动态适应能力
-# 基础 QPM: 300，峰值可达 ~390
+# 模拟：2组客户端，实时型（严格SLO）vs 批处理型（宽松SLO）
+# 特点：测试ExFairS在异构工作负载下的表现
+# 总 QPM: 290
 # =============================================================================
 
-name: "Scenario_IV_SLO_Gradient_Dynamic"
-description: "Gradient SLO with dynamic load - tests adaptability"
+name: "Scenario_IV_Realtime_vs_Batch"
+description: "Realtime clients vs Batch clients with different SLO requirements"
 
-experiment:
-  request_timeout: 30
-  max_output_tokens: 128
-
-# 大幅度QPM浮动
-qpm_variation: 0.3           # ±30% 浮动
-qpm_pattern: "random"
-max_total_qpm: 400
+# experiment 配置统一在 config/Config.py 中
 
 clients:
-  # 紧急服务：SLO紧张
-  - type: Mix
+  - type: Realtime
     count: 1
-    qpm: 50
+    qpm: 55
     slo: 6
-  # 重要服务：SLO适中
-  - type: Mix
+    # 实时型A：严格SLO
+  - type: Realtime
     count: 1
-    qpm: 75
-    slo: 8
-  # 普通服务：SLO宽松
-  - type: Mix
+    qpm: 55
+    slo: 6
+    # 实时型B：严格SLO
+  - type: Batch
     count: 1
     qpm: 90
-    slo: 11
-  # 后台服务：SLO很宽松
-  - type: Mix
+    slo: 14
+    # 批处理型A：宽松SLO
+  - type: Batch
     count: 1
-    qpm: 85
-    slo: 16
+    qpm: 90
+    slo: 14
+    # 批处理型B：宽松SLO
 
-# 总 QPM: 50 + 75 + 90 + 85 = 300
-# SLO 梯度: 6s → 8s → 11s → 16s
-# 挑战：在负载突增时，优先保护紧急服务的SLO
+# 总 QPM: 55 × 2 + 90 × 2 = 290
+# QPM 比例: 19% : 19% : 31% : 31%
+# SLO 比例: 6 : 6 : 14 : 14 (实时 vs 批处理)

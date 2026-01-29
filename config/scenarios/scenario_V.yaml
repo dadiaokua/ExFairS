@@ -1,41 +1,68 @@
 # =============================================================================
-# Scenario V: 混合场景 - 最接近真实生产环境
+# Scenario V: 混合压力场景（8客户端）
 # =============================================================================
-# 模拟：多种类型客户端共存
-# - 1个大批量客户（数据处理管道）
-# - 2个中等交互式客户（Web应用）
-# - 1个小型实时客户（聊天机器人）
-# 总 QPM: 350 (原320 + 30)
+# 模拟：8个客户端，包含大客户、紧急小客户、普通小客户、低优先级客户
+# 特点：最复杂的混合场景，测试ExFairS的综合调度能力
+# 总 QPM: 300
 # =============================================================================
 
-name: "Scenario_V_Production_Mix"
-description: "Production-like mix: batch + interactive + realtime clients"
+name: "Scenario_V_Mixed_Pressure"
+description: "8 clients with mixed requirements - most complex scenario"
 
-experiment:
-  request_timeout: 30
-  max_output_tokens: 128
+# experiment 配置统一在 config/Config.py 中
 
 clients:
-  # 批量处理：高QPM，非常宽松SLO
+  # 大客户组（2个，占53.3%流量）
+  - type: Batch
+    count: 1
+    qpm: 80
+    slo: 10
+    # 大客户A：高流量，中等SLO
+  - type: Batch
+    count: 1
+    qpm: 80
+    slo: 12
+    # 大客户B：高流量，宽松SLO
+  
+  # 紧急小客户组（2个，占20%流量）
+  - type: Realtime
+    count: 1
+    qpm: 30
+    slo: 5
+    # 紧急小客户A：低流量，最严格SLO
+  - type: Realtime
+    count: 1
+    qpm: 30
+    slo: 5
+    # 紧急小客户B：低流量，最严格SLO
+  
+  # 普通小客户组（2个，占16.7%流量）
   - type: Mix
     count: 1
-    qpm: 160       # (原140+20)
-    slo: 21        # 非常宽松 (+1s)
-  # 交互式Web应用：中等QPM，中等SLO
+    qpm: 25
+    slo: 8
+    # 普通小客户A：低流量，中等SLO
   - type: Mix
     count: 1
-    qpm: 75        # (原70+5)
-    slo: 9         # (+1s)
-  - type: Mix
+    qpm: 25
+    slo: 8
+    # 普通小客户B：低流量，中等SLO
+  
+  # 低优先级客户组（2个，占10%流量）
+  - type: Batch
     count: 1
-    qpm: 65        # (原60+5)
-    slo: 9
-  # 实时聊天：低QPM，紧张SLO
-  - type: Mix
+    qpm: 15
+    slo: 15
+    # 低优先级A：最低流量，最宽松SLO
+  - type: Batch
     count: 1
-    qpm: 50        # (原50)
-    slo: 6.5       # 紧张 (+1s)
+    qpm: 15
+    slo: 15
+    # 低优先级B：最低流量，最宽松SLO
 
-# QPM 比例: 3.2 : 1.5 : 1.3 : 1
-# SLO 比例: 3.6 : 1.5 : 1.5 : 1
-# 挑战：综合考验所有调度能力
+# 总 QPM: 80×2 + 30×2 + 25×2 + 15×2 = 300
+# 客户端分组:
+#   - 大客户组: 53.3% QPM, SLO 10-12s
+#   - 紧急小客户组: 20% QPM, SLO 5s
+#   - 普通小客户组: 16.7% QPM, SLO 8s
+#   - 低优先级组: 10% QPM, SLO 15s

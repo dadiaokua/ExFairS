@@ -9,16 +9,8 @@
 # 实验配置 (Experiment Configuration)
 # -----------------------------------------------------------------------------
 experiment:
-  # request_timeout: 单个请求的超时时间（秒）
-  # - 超时后请求会被标记为失败
-  # - 注意：应该大于SLO阈值，否则请求可能在完成前就被超时
-  request_timeout: 12
-
-  # max_output_tokens: 最大输出token数
-  max_output_tokens: 128
-
-  # concurrency: 每个客户端的并发数
-  concurrency: 10
+  # max_output_tokens, request_timeout, concurrency 统一在 config/Config.py 中配置
+  # 此处保留 experiment 节点以便场景文件可以覆盖其他实验参数，不在此处重复设置
 
 # -----------------------------------------------------------------------------
 # QPM 动态变化配置 (Dynamic QPM Configuration)

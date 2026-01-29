@@ -1,36 +1,28 @@
 # =============================================================================
-# Scenario I: QPM梯度 + 统一SLO
+# Scenario I: 双客户端对比
 # =============================================================================
-# 模拟：不同规模的服务，但SLO要求相同
-# 特点：测试调度策略在QPM不均衡下能否保持公平
+# 模拟：2个客户端，相同QPM但不同SLO
+# 特点：测试ExFairS在SLO差异场景下的表现
 # 总 QPM: 300
 # =============================================================================
 
-name: "Scenario_I_QPM_Gradient_UniformSLO"
-description: "Different QPM levels with same SLO - tests fairness under load imbalance"
+name: "Scenario_I_Dual_Client"
+description: "2 clients with same QPM but different SLO requirements"
 
-experiment:
-  request_timeout: 30
-  max_output_tokens: 128
+# experiment 配置统一在 config/Config.py 中
 
 clients:
-  - type: Mix
+  - type: Realtime
     count: 1
-    qpm: 40        # 小客户
-    slo: 9
-  - type: Mix
+    qpm: 150
+    slo: 7
+    # 严格SLO客户端
+  - type: Batch
     count: 1
-    qpm: 70        # 中小客户
-    slo: 9
-  - type: Mix
-    count: 1
-    qpm: 95        # 中大客户
-    slo: 9
-  - type: Mix
-    count: 1
-    qpm: 95        # 大客户
-    slo: 9
+    qpm: 150
+    slo: 12
+    # 宽松SLO客户端
 
-# 总 QPM: 40 + 70 + 95 + 95 = 300
-# QPM 比例: 1 : 1.75 : 2.4 : 2.4
-# 挑战：高QPM客户不应该挤占低QPM客户的SLO
+# 总 QPM: 150 × 2 = 300
+# QPM 比例: 1 : 1
+# SLO 比例: 7 : 12 (严格 vs 宽松)

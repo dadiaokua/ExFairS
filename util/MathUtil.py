@@ -217,7 +217,7 @@ def get_windowed_results(client, window_size):
 
 async def fairness_result(clients, exp_type, logger):
     # 【改进4】使用时间窗计算公平性
-    window_size = GLOBAL_CONFIG.get("fairness_window_size", 5)
+    window_size = GLOBAL_CONFIG.get("fairness_window_size", 1)
     
     # Calculate service values and total service in one pass
     total_service = 0

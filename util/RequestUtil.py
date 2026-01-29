@@ -347,7 +347,7 @@ async def collect_single_response(queue_manager, client_id, request_info, global
         current_elapsed = time.time() - global_start_time
         remaining_time = experiment.round_time - current_elapsed
         # 使用配置的 request_timeout 作为上限，剩余时间的80%作为超时
-        max_timeout = getattr(experiment, 'request_timeout', 120)
+        max_timeout = getattr(experiment, 'request_timeout', 30)
         timeout = min(max_timeout, max(5, remaining_time * 0.8))
         
         result = await queue_manager.get_response(client_id, timeout=timeout)
@@ -571,7 +571,7 @@ async def worker_with_queue(experiment, queue_manager, semaphore, results, worke
     # 等待剩余时间（如果还有的话）
     elapsed = time.time() - global_start_time
     remaining_time = experiment.round_time - elapsed
-    if remaining_time > 0 and remaining_time <= experiment.round_time * GLOBAL_CONFIG.get('buffer_ratio', 0.5):
+    if remaining_time > 0 and remaining_time <= experiment.round_time * GLOBAL_CONFIG.get('buffer_ratio', 0.05):
         await asyncio.sleep(remaining_time)
     elif remaining_time <= 0:
         experiment.logger.info(f"Client {main_client_id}: round time exceeded by {-remaining_time:.2f}s")
@@ -632,7 +632,7 @@ def calculate_all_request_times(experiment, qmp_per_worker):
     time_ratio = experiment.time_ratio
 
     # 预留缓冲时间给最后的请求完成
-    buffer_time = round_time * GLOBAL_CONFIG.get('buffer_ratio', 0.5)
+    buffer_time = round_time * GLOBAL_CONFIG.get('buffer_ratio', 0.05)
     # 确保缓冲时间不超过round_time的50%
     buffer_time = min(buffer_time, round_time * 0.5)
     # 实际可用的发送时间窗口
@@ -860,8 +860,8 @@ async def worker(experiment, selected_clients, semaphore, results, worker_id, wo
 
     elapsed = time.time() - global_start_time
     remaining_time = experiment.round_time - elapsed
-    if remaining_time > experiment.round_time * GLOBAL_CONFIG.get('buffer_ratio', 0.5) * 1.1:
-        if remaining_time > (experiment.round_time * GLOBAL_CONFIG.get('buffer_ratio', 0.5) * 2):
+    if remaining_time > experiment.round_time * GLOBAL_CONFIG.get('buffer_ratio', 0.05) * 1.1:
+        if remaining_time > (experiment.round_time * GLOBAL_CONFIG.get('buffer_ratio', 0.05) * 2):
             experiment.logger.warning(
                 f"Client {client_id}: Warning: Not enough requests to fill the round time. Sleeping for {remaining_time:.2f} seconds")
         await asyncio.sleep(remaining_time)

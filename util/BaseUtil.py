@@ -108,7 +108,7 @@ def calculate_adjustment_delta_lfs(client1, client2):
 def calculate_adjustment_delta_vtc(client1, client2):
     """计算调整量"""
     fairness_diff = abs(client1.service - client2.service) / max(client1.service, client2.service)
-    delta = fairness_diff * GLOBAL_CONFIG.get("ADJUST_SENSITIVITY", 1)
+    delta = fairness_diff * GLOBAL_CONFIG.get("ADJUST_SENSITIVITY", 1.5)
     max_delta = GLOBAL_CONFIG.get("MAX_ADJUST_DELTA", 0.5)
     return min(delta, max_delta)
 
@@ -135,8 +135,8 @@ def clip_priority(priority):
     【改进1】优先级边界限制
     将优先级裁剪到 [priority_min, priority_max] 范围内，防止极端值
     """
-    priority_min = GLOBAL_CONFIG.get("priority_min", -50)
-    priority_max = GLOBAL_CONFIG.get("priority_max", 50)
+    priority_min = GLOBAL_CONFIG.get("priority_min", -100)
+    priority_max = GLOBAL_CONFIG.get("priority_max", 100)
     return max(priority_min, min(priority_max, priority))
 
 
@@ -151,7 +151,7 @@ def decay_priorities(clients):
     Args:
         clients: 客户端列表
     """
-    decay_rate = GLOBAL_CONFIG.get("priority_decay_rate", 0.9)
+    decay_rate = GLOBAL_CONFIG.get("priority_decay_rate", 0.95)
     
     decayed_clients = []
     for client in clients:
@@ -184,8 +184,8 @@ def adjust_resources(client_low_fairness_ratio, client_high_fairness_ratio, delt
     - 【改进1】优先级边界限制：防止极端插队
     - 【改进3】小步调整：使用可配置的放大系数，减缓累积速度
     """
-    # 【改进3】使用可配置的放大系数（默认10，原值20）
-    priority_amplifier = GLOBAL_CONFIG.get("priority_amplifier", 10)
+    # 【改进3】使用可配置的放大系数（默认15，原值20）
+    priority_amplifier = GLOBAL_CONFIG.get("priority_amplifier", 15)
     priority_changes = max(1, int(delta * priority_amplifier))  # 至少变化 1
     
     # 根据 SLO 违约情况进一步调整

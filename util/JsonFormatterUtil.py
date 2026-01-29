@@ -312,8 +312,8 @@ def open_jsonl_file(client_type, datasets):
     if not os.path.exists(dataset_path):
         if client_type == "short" or client_type == "mix" or client_type == "default":
             dataset_path = "../sharegpt_gpt4/"
-        else:
-            dataset_path = "../longbench/"
+    else:
+        dataset_path = "../longbench/"
 
     if not os.path.exists(dataset_path):
         print(f"目录 {dataset_path} 不存在")
@@ -384,7 +384,7 @@ def load_time_data(target_qps=None):
         if timedata is None:
             print(f"Warning: Could not load time data from any path, using default intervals")
             return [1.0]
-        
+
         return process_timestamps(timedata, target_qps)
 
     except Exception as e:

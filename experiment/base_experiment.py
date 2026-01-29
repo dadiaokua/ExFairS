@@ -44,7 +44,7 @@ class BaseExperiment:
         self.use_time_data = client.use_time_data
 
         # 实验特定参数
-        self.output_tokens = self.config.get('output_tokens', 200)
+        self.output_tokens = self.config.get('output_tokens', 128)
         self.qpm = self.config.get('qpm', 1)
         self.config_round = self.config.get('config_round', 1)
         self.latency_slo = self.config.get('latency_slo', 10)

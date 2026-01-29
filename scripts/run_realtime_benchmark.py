@@ -200,9 +200,8 @@ def create_benchmark_clients(scenario_config: Dict, exp_type: str,
             client_index = len(clients)
             client_id = f"{client_type}_{client_index}"
             
-            # 获取 max_output_tokens 配置（先从 experiment 子配置读取）
-            max_output_tokens = scenario_config.get('experiment', {}).get('max_output_tokens',
-                              scenario_config.get('max_output_tokens', GLOBAL_CONFIG.get('max_output_tokens', 256)))
+            # 获取 output_tokens 配置（统一从 GLOBAL_CONFIG 读取）
+            max_output_tokens = GLOBAL_CONFIG.get('output_tokens', 128)
             
             # 如果 openai_clients 为 None，传入 None（使用直接引擎模式）
             openai_client = None
@@ -219,7 +218,7 @@ def create_benchmark_clients(scenario_config: Dict, exp_type: str,
                 exp_type=exp_type,
                 distribution=GLOBAL_CONFIG.get('distribution', 'poisson'),
                 request_timeout=scenario_config.get('experiment', {}).get('request_timeout', 
-                              scenario_config.get('request_timeout', GLOBAL_CONFIG.get('request_timeout', 120))),
+                              scenario_config.get('request_timeout', GLOBAL_CONFIG.get('request_timeout', 30))),
                 concurrency=GLOBAL_CONFIG.get('concurrency', 10),
                 round=1,
                 round_time=duration,
@@ -633,7 +632,7 @@ def save_results(monitor: RealtimeMonitor, output_dir: str,
         "mix_clients": len(mix_qpm),
         "mix_clients_slo": mix_slo,
         "concurrency": GLOBAL_CONFIG.get('concurrency', 10),
-        "request_timeout": GLOBAL_CONFIG.get('request_timeout', 120),
+        "request_timeout": GLOBAL_CONFIG.get('request_timeout', 30),
         "exp": args.strategy,
         "scenario": args.scenario,
         "run_id": args.run_id,

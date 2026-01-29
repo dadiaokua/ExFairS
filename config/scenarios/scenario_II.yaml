@@ -1,38 +1,33 @@
 # =============================================================================
-# Scenario II: 大鱼吃小鱼 - 极端QPM差异
+# Scenario II: 三客户端梯度
 # =============================================================================
-# 模拟：一个大客户（批量处理）+ 多个小客户（交互式）
-# 特点：大客户可能"饿死"小客户，考验公平调度
+# 模拟：3个客户端，QPM和SLO呈梯度分布
+# 特点：小流量严格SLO vs 大流量宽松SLO
 # 总 QPM: 300
 # =============================================================================
 
-name: "Scenario_II_Big_vs_Small_Clients"
-description: "One dominant client vs multiple small clients - tests fairness under QPM imbalance"
+name: "Scenario_II_Triple_Gradient"
+description: "3 clients with gradient QPM and SLO distribution"
 
-experiment:
-  request_timeout: 30
-  max_output_tokens: 128
+# experiment 配置统一在 config/Config.py 中
 
 clients:
-  # 大客户：批量处理，高QPM，SLO宽松
+  - type: Realtime
+    count: 1
+    qpm: 80
+    slo: 6
+    # 高优先级：小流量，严格SLO
   - type: Mix
     count: 1
-    qpm: 165       # 占总负载 55%
-    slo: 13        # 宽松，可以等
-  # 小客户：交互式应用，低QPM，SLO紧张
-  - type: Mix
+    qpm: 100
+    slo: 9
+    # 中优先级：中等流量，中等SLO
+  - type: Batch
     count: 1
-    qpm: 45        # 小客户1
-    slo: 7         # 紧张
-  - type: Mix
-    count: 1
-    qpm: 45        # 小客户2
-    slo: 7
-  - type: Mix
-    count: 1
-    qpm: 45        # 小客户3
-    slo: 7
+    qpm: 120
+    slo: 12
+    # 低优先级：大流量，宽松SLO
 
-# 总 QPM: 165 + 45 + 45 + 45 = 300
-# QPM 比例: 3.7 : 1 : 1 : 1
-# 挑战：大客户的高QPM不应该导致小客户的SLO大量违约
+# 总 QPM: 80 + 100 + 120 = 300
+# QPM 比例: 26.7% : 33.3% : 40%
+# SLO 比例: 6 : 9 : 12 (梯度分布)
