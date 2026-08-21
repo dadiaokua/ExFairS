@@ -1,12 +1,19 @@
 start_run.sh
-benchmark_results.json
+/benchmark_results.json
 
 sharegpt_*/
 longbench/
 vLLM_performance-venv/
 tmp_result/
-results/*
+results/run_*/
 figure/*
 time_log/
 log/
 auto_push.sh
+
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+.idea/
+.vscode/

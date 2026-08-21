@@ -1,0 +1,25 @@
+{
+  "experiment": "QUEUE_SLOGreedy",
+  "model": "/home/llm/model_hub/Qwen3-8B",
+  "dataset": "sharegpt",
+  "concurrency": 10,
+  "duration": 300,
+  "monitor_interval": 25,
+  "alpha": 0.7499999999999998,
+  "timestamp": "2026-01-29T02:25:12",
+  "scenario": "scenario_I",
+  "clients": [
+    {
+      "type": "Realtime",
+      "count": 1,
+      "qpm": 150,
+      "slo": 7
+    },
+    {
+      "type": "Batch",
+      "count": 1,
+      "qpm": 150,
+      "slo": 12
+    }
+  ]
+}

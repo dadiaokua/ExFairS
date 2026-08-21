@@ -1,0 +1,38 @@
+{
+  "filename": "QUEUE_VTC_0129_0256_to_0129_0302.json",
+  "total_time": 300,
+  "result_dir": "results/run_20260129_020704/scenario_II/vtc",
+  "figure_dir": "results/run_20260129_020704/scenario_II/vtc",
+  "distribution": "poisson",
+  "short_qpm": [],
+  "short_client_qpm_ratio": 1.0,
+  "long_qpm": [],
+  "long_client_qpm_ratio": 1.0,
+  "mix_qpm": [
+    80,
+    100,
+    120
+  ],
+  "mix_client_qpm_ratio": 1.0,
+  "short_clients": 0,
+  "short_clients_slo": [],
+  "long_clients": 0,
+  "long_clients_slo": [],
+  "mix_clients": 3,
+  "mix_clients_slo": [
+    6,
+    9,
+    12
+  ],
+  "concurrency": 10,
+  "request_timeout": 30,
+  "exp": "QUEUE_VTC",
+  "scenario": "scenario_II",
+  "run_id": "run_20260129_020704",
+  "monitor_interval": 25,
+  "monitor_count": 12,
+  "tokenizer": "/home/llm/model_hub/Qwen3-8B",
+  "request_model_name": "/home/llm/model_hub/Qwen3-8B",
+  "qpm_variation": 0.0,
+  "qpm_pattern": "random"
+}

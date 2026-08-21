@@ -1,0 +1,61 @@
+{
+  "experiment": "QUEUE_Justitia",
+  "model": "/home/llm/model_hub/Qwen3-8B",
+  "dataset": "sharegpt",
+  "concurrency": 10,
+  "duration": 300,
+  "monitor_interval": 25,
+  "alpha": 0.8499999999999999,
+  "timestamp": "2026-01-29T05:25:39",
+  "scenario": "scenario_VII",
+  "clients": [
+    {
+      "type": "Batch",
+      "count": 1,
+      "qpm": 80,
+      "slo": 10
+    },
+    {
+      "type": "Batch",
+      "count": 1,
+      "qpm": 80,
+      "slo": 12
+    },
+    {
+      "type": "Realtime",
+      "count": 1,
+      "qpm": 30,
+      "slo": 5
+    },
+    {
+      "type": "Realtime",
+      "count": 1,
+      "qpm": 30,
+      "slo": 5
+    },
+    {
+      "type": "Mix",
+      "count": 1,
+      "qpm": 25,
+      "slo": 8
+    },
+    {
+      "type": "Mix",
+      "count": 1,
+      "qpm": 25,
+      "slo": 8
+    },
+    {
+      "type": "Batch",
+      "count": 1,
+      "qpm": 15,
+      "slo": 15
+    },
+    {
+      "type": "Batch",
+      "count": 1,
+      "qpm": 15,
+      "slo": 15
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "experiment": "QUEUE_ExFairS",
+  "model": "/home/llm/model_hub/Qwen3-8B",
+  "dataset": "sharegpt",
+  "concurrency": 10,
+  "duration": 300,
+  "monitor_interval": 25,
+  "alpha": 0.8499999999999999,
+  "timestamp": "2026-01-29T02:43:53",
+  "scenario": "scenario_II",
+  "clients": [
+    {
+      "type": "Realtime",
+      "count": 1,
+      "qpm": 80,
+      "slo": 6
+    },
+    {
+      "type": "Mix",
+      "count": 1,
+      "qpm": 100,
+      "slo": 9
+    },
+    {
+      "type": "Batch",
+      "count": 1,
+      "qpm": 120,
+      "slo": 12
+    }
+  ]
+}

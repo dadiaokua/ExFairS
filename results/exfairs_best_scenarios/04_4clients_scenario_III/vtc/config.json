@@ -1,0 +1,37 @@
+{
+  "experiment": "QUEUE_VTC",
+  "model": "/home/llm/model_hub/Qwen3-8B",
+  "dataset": "sharegpt",
+  "concurrency": 10,
+  "duration": 300,
+  "monitor_interval": 25,
+  "alpha": 0.7999999999999998,
+  "timestamp": "2026-01-28T13:19:11",
+  "scenario": "scenario_III",
+  "clients": [
+    {
+      "type": "Mix",
+      "count": 1,
+      "qpm": 55,
+      "slo": 6
+    },
+    {
+      "type": "Mix",
+      "count": 1,
+      "qpm": 55,
+      "slo": 6
+    },
+    {
+      "type": "Mix",
+      "count": 1,
+      "qpm": 90,
+      "slo": 14
+    },
+    {
+      "type": "Mix",
+      "count": 1,
+      "qpm": 90,
+      "slo": 14
+    }
+  ]
+}

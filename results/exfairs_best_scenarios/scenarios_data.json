@@ -1,0 +1,152 @@
+[
+  {
+    "folder": "01_2clients_scenario_I",
+    "name": "S1: 2 Clients",
+    "source": "run_20260129/scenario_I",
+    "clients": 2,
+    "viol_rank": 1,
+    "fair_rank": 1,
+    "results": {
+      "exfairs": {
+        "viol_rate": 6.444759206798867,
+        "fairness": 0.9772757017509441,
+        "total_count": 1412
+      },
+      "justitia": {
+        "viol_rate": 18.388429752066116,
+        "fairness": 0.9218619993816466,
+        "total_count": 1452
+      },
+      "slogreedy": {
+        "viol_rate": 13.665031534688158,
+        "fairness": 0.952169517594548,
+        "total_count": 1427
+      },
+      "vtc": {
+        "viol_rate": 19.77946243969676,
+        "fairness": 0.8976927058902077,
+        "total_count": 1451
+      }
+    }
+  },
+  {
+    "folder": "02_3clients_scenario_II",
+    "name": "S2: 3 Clients",
+    "source": "run_20260129/scenario_II",
+    "clients": 3,
+    "viol_rank": 1,
+    "fair_rank": 1,
+    "results": {
+      "exfairs": {
+        "viol_rate": 18.143754361479413,
+        "fairness": 0.8682515087072035,
+        "total_count": 1433
+      },
+      "justitia": {
+        "viol_rate": 21.0898796886058,
+        "fairness": 0.8638108980042506,
+        "total_count": 1413
+      },
+      "slogreedy": {
+        "viol_rate": 46.27808988764045,
+        "fairness": 0.6597194203851512,
+        "total_count": 1424
+      },
+      "vtc": {
+        "viol_rate": 22.214484679665738,
+        "fairness": 0.8673678262470862,
+        "total_count": 1436
+      }
+    }
+  },
+  {
+    "folder": "03_4clients_scenario_I",
+    "name": "S3: 4 Clients (Balanced)",
+    "source": "run_20260128/scenario_I",
+    "clients": 4,
+    "viol_rank": 1,
+    "fair_rank": 1,
+    "results": {
+      "exfairs": {
+        "viol_rate": 6.903914590747331,
+        "fairness": 0.9978908731777419,
+        "total_count": 1405
+      },
+      "justitia": {
+        "viol_rate": 19.782608695652172,
+        "fairness": 0.9940065856298833,
+        "total_count": 1380
+      },
+      "slogreedy": {
+        "viol_rate": 24.537695590327168,
+        "fairness": 0.9948695357905923,
+        "total_count": 1406
+      },
+      "vtc": {
+        "viol_rate": 24.577464788732396,
+        "fairness": 0.9953068170497623,
+        "total_count": 1420
+      }
+    }
+  },
+  {
+    "folder": "04_4clients_scenario_III",
+    "name": "S4: 4 Clients (RT vs Batch)",
+    "source": "run_20260128/scenario_III",
+    "clients": 4,
+    "viol_rank": 1,
+    "fair_rank": 1,
+    "results": {
+      "exfairs": {
+        "viol_rate": 5.379513633014001,
+        "fairness": 0.9834385695230384,
+        "total_count": 1357
+      },
+      "justitia": {
+        "viol_rate": 14.413075780089152,
+        "fairness": 0.9258743939225013,
+        "total_count": 1346
+      },
+      "slogreedy": {
+        "viol_rate": 20.672023374726077,
+        "fairness": 0.8280608196413818,
+        "total_count": 1369
+      },
+      "vtc": {
+        "viol_rate": 9.635036496350365,
+        "fairness": 0.9565954664526949,
+        "total_count": 1370
+      }
+    }
+  },
+  {
+    "folder": "05_8clients_scenario_VII",
+    "name": "S5: 8 Clients (Mixed)",
+    "source": "run_20260129/scenario_VII",
+    "clients": 8,
+    "viol_rank": 2,
+    "fair_rank": 2,
+    "results": {
+      "exfairs": {
+        "viol_rate": 9.323308270676693,
+        "fairness": 0.9445115279926205,
+        "total_count": 1330
+      },
+      "justitia": {
+        "viol_rate": 17.472118959107807,
+        "fairness": 0.8580520415062969,
+        "total_count": 1345
+      },
+      "slogreedy": {
+        "viol_rate": 16.775126536514822,
+        "fairness": 0.9014646019661834,
+        "total_count": 1383
+      },
+      "vtc": {
+        "viol_rate": 8.830022075055188,
+        "fairness": 0.9470529324541336,
+        "total_count": 1359
+      }
+    }
+  }
+]

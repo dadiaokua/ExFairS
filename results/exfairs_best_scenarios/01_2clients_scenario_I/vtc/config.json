@@ -1,0 +1,25 @@
+{
+  "experiment": "QUEUE_VTC",
+  "model": "/home/llm/model_hub/Qwen3-8B",
+  "dataset": "sharegpt",
+  "concurrency": 10,
+  "duration": 300,
+  "monitor_interval": 25,
+  "alpha": 0.8499999999999999,
+  "timestamp": "2026-01-29T02:31:25",
+  "scenario": "scenario_I",
+  "clients": [
+    {
+      "type": "Realtime",
+      "count": 1,
+      "qpm": 150,
+      "slo": 7
+    },
+    {
+      "type": "Batch",
+      "count": 1,
+      "qpm": 150,
+      "slo": 12
+    }
+  ]
+}
